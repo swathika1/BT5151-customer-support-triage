@@ -1,211 +1,399 @@
-group project BT5151
+# Customer Support Ticket Classification System
 
-Below is a complete implementation roadmap for your Confidence-Aware Customer Support Autopilot, with 2 Gradio UIs (Customer + Admin), and a feedback loop where admin flags → system updates.
-This is aligned with the project spec: your system must be a LangGraph pipeline where preprocess → train → evaluate → select → run-inference are distinct agent nodes , and you must have downstream skills that turn predictions into business-facing output shown in Gradio . The brief even gives a “Customer Support Triage” template pipeline you can extend .
+## Overview
 
-0) First pin down the end product (what users/admin see)
-Customer UI (non-technical)
-Input: customer message in any language
-Output (English):
-Auto-reply (or “ask 2 clarifying questions”, or “escalate”)
-A short “what we understood” summary (English)
-Optional “details” accordion (category + confidence) (rubric likes showing confidence)
-Admin UI (audit + control)
-Shows:
-Full interaction history (search/filter)
-Category + confidence + routing decision
-Decision trace logs (structured, per-stage inputs/outputs, triggered rules, top features)
-Flag response as inappropriate + choose reason + optionally provide corrected label / corrected reply
-Button: “Apply feedback now” (immediate) + “Retrain model” (batch)
-Note on “thought process logs”: you should not log private free-form chain-of-thought. Instead log auditable decision traces: model confidence, top indicative words (LIME/SHAP or coefficients), which routing rule fired, which template/policy snippet was used, etc. This is what an admin actually needs.
+This is the complete implementation of a **multi-agent ML pipeline** for automatically classifying customer support tickets and routing them to the appropriate team. The system uses:
 
-1) Dataset plan (what to use + why)
-You need a labelled dataset and you must train ≥2 candidate models on the same split .
-Best fit datasets (pick 1 primary + 1 optional)
-Multilingual Customer Support Tickets (Kaggle) – includes multilingual tickets and metadata (good for your “any language” requirement). (Kaggle) (Kaggle)
-Tobi-Bueck customer-support-tickets (Hugging Face) – explicitly described for ticket routing/classification use cases. (Hugging Face)
-Optional extra domain dataset if you want “finance support” flavour:
-CFPB Consumer Complaint Database (Kaggle) (narratives + product labels). (Kaggle)
-Label schema (keep it realistic, 6–10 classes)
-Example classes:
-Billing/Payment
-Delivery/Shipping
-Account/Login
-Technical Issue
-Refund/Cancellation
-Product Info
-Complaint/Bad experience
-Other / General inquiry
-If dataset labels don’t match exactly, map them to these (document the mapping).
+- **LangGraph** for multi-agent orchestration
+- **scikit-learn** for ML model training (Logistic Regression, LinearSVC, Naive Bayes)
+- **OpenAI GPT-4o-mini** for LLM-driven agents (interpretation, translation)
+- **SQLite** for persistent logging and audit trails
+- **Gradio** for web-based UI
 
-2) Tools / stack (what to implement with)
-The brief’s recommended stack is basically your default: Python + scikit-learn/PyTorch + pandas/numpy + matplotlib + LangGraph + (OpenAI GPT-4o-mini or equivalent) + Gradio , and Gradio must run with share=True .
-Core libraries
-scikit-learn: TF-IDF, models, calibration, metrics
-LangGraph: orchestration (each stage = node)
-Gradio: 2 tabs (Customer/Admin)
-SQLite (simple) for logging + feedback store (fine for Colab demo)
-Transformers (optional) for offlT) if you don’t want API translation
-##ne)
-Option A (simplest, best quality): use an LLM call for translation (since LLM is allowed for agent skills) on B (fully local)**: transformers translation model (heavier but no API)
+## Project Structure
 
-3) ML training methods (what you train + how you make “confidence-aware” real)
-3.1 Preprocessing (for training + inference)
-Language detect (fast)
-If non-English → translate to English (store both original + translated)
-Text cleaning:
-lowercasing, remove URLs/emails, ntter-like data) remove @handles, keep hashtags as tokens
-Split: train/val/test (stratified)
-Handle imbalance: class_weight="balanced" or re-sampling
-3.2 Feature representation
-TF-IDF with word n-grams (1–2) + maybe character n-grams (3–5) to be robust to typos.
-3.3 Candidate models (train at least 2; I recommend 3)
-The brief’s example suggests comparing multiple classifiers for this exact domain.
-Model A (baseline, interpretable): TF-IDF + Logistic Regression
-Model B (strong linear): TF-IDF + Linear SVM
-Model C (optional): TF-IDF → TruncatedSVD (dim reduction) → Gradient Boosting / Random Forest
-3.4 Hyperparameter tuning
-Use GridSearchCV (small grid) on validation set
-Keep it reproducible: fixed random seeds
-3.5 Required metrics + visuat per-class Precision/Recall/F1 + Macro F1 + Weighted F1
-Recommended visuals: confusion matrix heatmap + per-class bar chart
-3.6 Make confidence meaningful (critical for your routing)
-If you route based on confidence, your probabilities must be calibrated.
-Wrap your chosen classifier with probability calibration (e.g., CalibratedClassifierCV):
-Logistic Regression is often decent
-u use probabilities
-Decide 2 thresholds on validation:
-τ_high: autoto-human
-middle zone: ask clarifying questions
-Also define a simple business cost logic:
-Wrong auto-reply is worse than asking a question → set τ_high conservative.
+### 📋 SKILL.md Specifications (11 files)
 
-4) Agent pipeline design (LangGraph nodes + what each skill does)
-Your graph must include at minimum: preprocess-data → train-models → evaluate-models → select-model → run-inference , and then downstream skills for business output .
-4.1 Recommended full pipeline (training + inference in one graph)
-Use state.mode in {"train","serve"} and conditional routing.
-Training path
-preprocess-data
-train-models
-evaluate-models
-select-model (write explicit selection logic)
-persist-artifacts (save model +holds)
-**Serving path (what Customer UI triggersetect-language3.translate-to-english(only if needed) 4.run-inference(*classify-complaint*) ← required stage :contentReference[oaicite:27]{index=27} 5.confidence-router(auto / clarify / escalate) 6.kb-retriever(optional: retrieve 1–3 “policy snippets” / canned guidelines) 7.draft-response(template-first, LLM polish second) 8.safety-check(basic guardrails) 9.log-interaction` (write to DB)
-Admin actions (buttons in Admin UI)
-flag-response
-apply-feedback-now (immediate learning)
-`retrain-from-sion bump)
-re-evaluate (optional: show “before vs after” on a held-out set)
-4.2 Agent State (what you store between nodes)
-The brief stresses designing a clean agent state chain .
-Include:
-raw_message, detected_language, translated_message
-predicted_label, probs, confidence
-route_decision (“AUTO_REPLY” / “ASK_CLARIFY” / “ESCALATE”)
-response_draft, response_final
-trace_logs: list of structured dicts: {stage, timestamp, inputs_summary, outputs_summary}
-conversation_id, customer_id
-admin_flags: {flagged: bool, rea:contentReference[oaicite:30]{index=30}ed_response}
-model_version, thresholds
+These document the design of each pipeline stage:
 
-5) Response generation strategy (avoid hallucination + make it business-safe)
-5.1 Template-first (deterministic)
-For each class, create a response template with slots:
-empathy line
-confirm issue
-ask for missing info (order id / account email / screenshots)
-next steps
-SLA expectation
-5.2 Optional LLM polish (controlled)
-Use LLM only to:
-rewrite template into natural tone
-keep it short
-maintain constraints (“don’t promise refunds unless policy snippet allows”)
-This aligns with “downstream skill translates prediction into business output” and helps you keep the UI business-friendly.
-5.3 Confidence routing behaviour (core of your novelty)
-High confidence → send final response
-Medium → ask 2–3 clarifying questions, do not claim resolution
-Low → escalate, produce an internal summary for human agent
+**Training Pipeline (Run Once):**
+1. `preprocess_data.md` - Text cleaning, TF-IDF vectorization, 70/15/15 split
+2. `train_models.md` - Train 3 models with GridSearchCV and probability calibration
+3. `evaluate_models.md` - Calculate F1/Precision/Recall metrics + GPT-4o-mini interpretation
+4. `select_model.md` - Choose best model by weighted F1 + LLM justification
+5. `persist_artifacts.md` - Save model.pkl, vectorizer.pkl, encoder.pkl, metrics.json
 
-6) Logging + Admin “audit” view (how to implement cleanly)
-6.1 Database schema (SQLite is ns`: id, ts, customer_id, raw_msg, lang, translated_msg, label, confidence, route, response_final, model_version
-trace_logs: interaction_id, stage, ts, input_summary, output_summary
-feedback: interaction_id, flagged, reason, corrected_label, corrected_response, admin_ts
-model_registry: model_version, trained_on_ts, metrics_summary, thresholds
-6.2 “Decision trace logs” content (what you show admin)
-Per stage:
-detect-language: detected code + score
-translate: original + translated (truncated preview)
-run-inference: label + top-3 probabilities
-explain: top indicative n-grams (from coefficients or LIME)
-router: which rule fired and why (confidence thresholds)
-draft-response: template id used + kb snippet ids used
-safety-check: passed/blocked + reason code
+**Serving Pipeline (Run Per-Request):**
+6. `run_inference.md` - Predict category + confidence score
+7. `detect_language.md` - Identify ticket language (en/fr/es/etc)
+8. `translate_to_english.md` - Translate non-English to English via GPT-4o-mini
+9. `confidence_router.md` - Route by confidence threshold or category
+10. `draft_response.md` - Generate response template
+11. `log_interaction.md` - Log to SQLite interactions table
 
-7) “Bot learns from admin flags” (practical learning loop)
-Implement two-speed learning:
-7.1 Immediate learning (same session)
-When admin flags and provides a corrected response:
-Add (translated_message, corrected_response) to an Approved Response Memory store
-simplest: TF-IDF search over approved responses (retrieve nearest)
-Add “blocked response hash” to a denylist so the same bad response isn’t reused.
-So the next similar message reuses the approved response template/example.
-7.2 Batch learning (true ML update)
-Periodically (or on admin “Retrain” button):
-Append flagged examples to training data:
-if admin corrected label → use that as new gold label
-Retrain models (A/B/C), evaluate, select again, bump model_version
-Recompute calibrated thresholds on validation
-This is totally aligned with the project’s “training loops + justified selection” requirement .
-For the demo: show one flagged example, then retrain quickly, then show that the class prediction or routing improves for that example.
+### 🐍 Python Implementation Files
 
-8) Gradio UI design (2 tabs)
-Tab 1: “Customer”
-Components:
-Textbox: “Paste your message (any language)”
-Optional: customer tier dropdown
-Outputs:
-English translation (if translated)
-Final auto-reply (English)
-Status cification / Escalated
-Accordion “Details”: predicted category + confidence (rubric likes this)
-Tab 2: “Admin”
-Components:
-Filter: date range, route decision, flagged only
-Table of interactions
-When row selected: show full trace logs + response
-Buttons:
-Flag inappropriate
-Provide corrected label (dropdown) + corrected response (textbox)
-Apply feedback now
-Retrain model (batch)
-Make sure Gradio launches with share=True oesn’t require ML knowledge to use .
+**Main Notebook:**
+- `customer_support_pipeline.ipynb` - Complete Jupyter notebook with:
+  - Stage 1-6 node definitions
+  - Training execution (Phase 1)
+  - Inference testing
+  - Gradio UI
+  - **NEEDS:** Integration of stages 4B, 5B, 7, 8
 
-9) What to write as SKILL.md files (so you score well)
-You need one SKILL.md per stage and each must include required sections . At minimum create SKILL.md for:
-Required ML stages:
-preprocess-data.md
-train-models.md (must list c
-evaluate-models.md (must state metri
-select-model.md (must state decision logic)
-run-inference.md
-Downstream/business skillanslate-to-english.md`
-confidence-router.md
-draft-response.md (must map prediction → business output clearly) .md`
-apply-feedback.md
-retrain-from-feedback.mdion plan (what you must demonstrate)
-You must doc**, including at least one challenging input and record confidence scores . Your 3 runs should be:
-Clear English message (high confidence → auto reply)
-Non-Englassify → reply)
-Ambiguous/short message (medium/low confidence → clarify/escalate)
-Also include at least two failures you observed and how you’d fix them (rubric expects this).
+**Node Functions:**
+- `all_priority_nodes.py` - 7 complete Python functions (ready to integrate):
+  ```python
+  select_model_node()              # Stage 4
+  persist_artifacts_node()         # Stage 4B
+  detect_language_node()           # Stage 5
+  translate_to_english_node()      # Stage 5B
+  confidence_router_node()         # Stage 6
+  draft_response_node()            # Stage 7
+  log_interaction_node()           # Stage 8
+  ```
 
-If you want, next I can give you But you can already start coding immediately in this order:
-Dataset load + label mapping
-Training notebook (TF-IDF + 2 models + evaluation plots)
-Calibration + thresholds
-LangGraph serve path (ingest → translate → infer → route → draft)
-SQLite logging
-Gradio tabs (customer/admin)
-Feedell me which dataset you want as your primary (Kaggle multilingual tickets (Kaggle) vs HF customer-support-tickets (Hugging Face)), I’ll propose a concrete label set + mapping + router thresholds that fits that dataset cleanly.
+**Setup & Testing:**
+- `setup_database.py` - Initialize SQLite with 4 tables:
+  - `interactions` - Every ticket classification
+  - `feedback` - Human validation of predictions
+  - `model_versions` - Trained model metadata
+  - `performance_metrics` - Daily/hourly analytics
 
+- `test_system.py` - Validates:
+  - All required packages installed
+  - Database schema correct
+  - Node functions importable
+  - State structure compatible with LangGraph
+  - OpenAI API configured
+
+- `INTEGRATION_GUIDE.py` - Step-by-step instructions for integrating all components into notebook
+
+## Quick Start
+
+### Step 1: Initialize System
+```bash
+# Terminal - Initialize SQLite database
+python setup_database.py
+
+# Output: Creates data/interactions.db with 4 tables
+```
+
+### Step 2: Validate Components
+```bash
+# Terminal - Run test suite
+python test_system.py
+
+# Expected: 6/6 tests pass ✅
+```
+
+### Step 3: Integrate into Notebook
+```bash
+# Open customer_support_pipeline.ipynb
+# Follow INTEGRATION_GUIDE.py for step-by-step instructions
+# OR view it in terminal:
+python INTEGRATION_GUIDE.py
+```
+
+### Step 4: Run Pipeline
+```
+In Jupyter:
+1. Cell 1: Install packages (add langdetect)
+2. Cell 2-3: Import + configure OpenAI
+3. Cell 4-11: Define training pipeline stages
+4. Cell 12: Define and compile training graph
+5. Cell 13: Execute Phase 1 training ← Validates all fixes
+6. Cell 14+: Define serving pipeline stages
+7. Cell 15: Define and compile serving graph
+8. Cell 16: Test serving pipeline on 5 sample tickets
+9. Cell 17: Launch Gradio UI
+```
+
+## Architecture Overview
+
+### Two-Pipeline Design
+
+**Training Pipeline (Phase 1 - Runs Once):**
+```
+Customer Tickets Dataset
+        ↓
+    [PREPROCESS]  ← Stage 1: Clean text, TF-IDF, 70/15/15 split
+        ↓
+    [TRAIN]       ← Stage 2: GridSearchCV on 3 models
+        ↓
+    [EVALUATE]    ← Stage 3: F1/Precision/Recall + GPT interpretation
+        ↓
+    [SELECT]      ← Stage 4: Best model by weighted F1 + LLM justification
+        ↓
+    [PERSIST]     ← Stage 4B: Save artifacts (model.pkl, vectorizer.pkl, metrics.json)
+        ↓
+    Artifact Storage (artifacts/ directory)
+```
+
+**Serving Pipeline (Phase 2 - Runs Per Request):**
+```
+New Support Ticket (customer_message)
+        ↓
+    [DETECT LANGUAGE]      ← Stage 5: Identify language
+        ↓
+    [TRANSLATE]            ← Stage 5B: GPT-4o-mini translates to English if needed
+        ↓
+    [INFERENCE]            ← Stage 6: Load model + predict category + confidence
+        ↓
+    [CONFIDENCE ROUTER]    ← Stage 7: Route by confidence threshold
+        │
+        ├─ Confidence ≥ 0.80     → AUTO APPROVED
+        ├─ Confidence 0.60-0.79  → PENDING REVIEW
+        └─ Confidence < 0.60     → ESCALATE TO SUPERVISOR
+        │
+        └─ Category="Security Concern" → Always ESCALATE
+        ↓
+    [DRAFT RESPONSE]       ← Stage 8: Generate template response
+        ↓
+    [LOG INTERACTION]      ← Stage 9: Insert into SQLite interactions table
+        ↓
+    Response sent to customer | Audit trail in database
+```
+
+### State Flow (Dict-based for LangGraph)
+
+```python
+state = {
+    # Input
+    "customer_message": "I can't login",
+    "conversation_id": "conv_12345",
+    
+    # After detect_language
+    "detected_language": "en",
+    "requires_translation": False,
+    
+    # After translate_to_english
+    "translated_message": None,  # null if English
+    
+    # After inference
+    "predicted_category": "Login Issue",
+    "confidence_score": 0.92,
+    "class_probabilities": {
+        "Login Issue": 0.92,
+        "Billing Issue": 0.05,
+        "Technical Support": 0.03
+    },
+    
+    # After confidence_router
+    "routing_decision": "auto_approved",
+    "routing_rationale": "Confidence 0.92 >= 0.80 threshold",
+    
+    # After draft_response
+    "response_template": "We've sent a password reset link...",
+    
+    # After log_interaction
+    "interaction_id": 42
+}
+```
+
+## Database Schema
+
+### interactions table
+```sql
+interaction_id INT PRIMARY KEY
+timestamp DATETIME
+original_message TEXT
+predicted_category TEXT
+confidence_score REAL
+routing_decision TEXT  -- "auto_approved" | "pending_review" | "escalate_to_supervisor"
+response_template TEXT
+detected_language TEXT
+translated_message TEXT  -- null if English
+model_name TEXT
+is_correct BOOLEAN  -- null until human feedback provided
+```
+
+### feedback table
+```sql
+feedback_id INT PRIMARY KEY
+interaction_id INT (FOREIGN KEY)
+human_category TEXT  -- What was the correct category?
+is_correct_prediction BOOLEAN
+confidence_threshold_ok BOOLEAN
+routing_ok BOOLEAN
+response_ok BOOLEAN
+feedback_timestamp DATETIME
+```
+
+## Models & Performance
+
+### Models Trained
+1. **Logistic Regression** - Fast, interpretable
+2. **LinearSVC** - Good separation boundaries
+3. **MultinomialNB** - Robust for text
+
+### Selection Criteria
+- **Macro F1** - Equal weight per category (good for imbalanced categories)
+- **Weighted F1** - Weighted by class frequency (realistic performance)
+- **Weighted F1** is the metric used for model selection
+
+### Example Metrics
+```
+              Precision  Recall  F1-Score  Support
+Login Issue      0.94     0.91      0.92      245
+Billing Issue    0.87     0.89      0.88      312
+Security Issue   0.96     0.94      0.95      143
+Technical Sup    0.90     0.92      0.91      200
+
+Accuracy                          0.91       900
+Macro Avg        0.92     0.91      0.91      900
+Weighted Avg     0.91     0.91      0.91      900
+```
+
+## Confidence Thresholds
+
+The system uses a three-tier routing strategy:
+
+| Confidence | Routing | Action |
+|-----------|---------|--------|
+| ≥ 0.80 | Auto Approved | Send response immediately |
+| 0.60 - 0.79 | Pending Review | Flag for human review |
+| < 0.60 | Escalate | Route to supervisor |
+
+**Category Overrides:**
+- Security Concern → Always escalate (regardless of confidence)
+- Billing Issue → Flag for review (check before approval)
+
+**Example:**
+```
+Login Issue, confidence 0.92 → AUTO APPROVED
+Billing Issue, confidence 0.75 → PENDING REVIEW
+Security Issue, confidence 0.98 → ESCALATED (business rule override)
+Unknown Issue, confidence 0.45 → ESCALATED (low confidence)
+```
+
+## OpenAI Integration
+
+### Models Used
+- **GPT-4o-mini** - Cost-effective LLM for:
+  1. **Evaluate stage** - Interpret model metrics to human manager
+  2. **Select stage** - Generate business justification for model choice
+  3. **Translate stage** - Translate non-English tickets to English
+
+### API Key Setup
+```bash
+# Terminal - Set environment variable
+export OPENAI_API_KEY='sk-...'
+
+# OR in notebook - Use Google Secrets (Colab)
+from google.colab import userdata
+api_key = userdata.get('OPENAI_API_KEY')
+```
+
+### Cost Estimate
+- **Training**: ~30-50 API calls (evaluate stage) = ~$0.10-0.20
+- **Serving**: 1 API call per non-English ticket = ~$0.001 per translation
+
+## Gradio Web UI
+
+The system includes a web interface for manual ticket classification:
+
+```
+┌─────────────────────────────────────────────┐
+│  Customer Support Ticket Classifier         │
+├─────────────────────────────────────────────┤
+│ Customer Message:   [________________]      │
+│ Conversation ID:    [________________]      │
+│                         [CLASSIFY]          │
+├─────────────────────────────────────────────┤
+│ Results:                                    │
+│  Category: Login Issue                      │
+│  Confidence: 92%                            │
+│  Routing: Auto Approved                     │
+│  Response: We've sent a password reset...   │
+│  Database ID: 42                            │
+└─────────────────────────────────────────────┘
+```
+
+## Troubleshooting
+
+**Q: "ModuleNotFoundError: langdetect"**
+```bash
+pip install langdetect
+```
+
+**Q: "sqlite3.OperationalError: no such table: interactions"**
+```bash
+python setup_database.py
+```
+
+**Q: "OpenAI API key not found"**
+```bash
+export OPENAI_API_KEY='sk-...'
+```
+
+**Q: "TypeError: PipelineState is not subscriptable"**
+- Ensure state is dict, not dataclass
+- Use `create_initial_state()` helper function
+
+**Q: LangGraph errors about state serialization**
+- Verify TypedDict import: `from typing import TypedDict`
+- Check PipelineState definition uses TypedDict, not @dataclass
+
+## File Checklist
+
+**Before Running Notebook:**
+- [ ] `setup_database.py` ✅ (creates data/interactions.db)
+- [ ] `test_system.py` ✅ (validates components)
+- [ ] `all_priority_nodes.py` ✅ (7 node functions)
+- [ ] `INTEGRATION_GUIDE.py` ✅ (step-by-step instructions)
+
+**SKILL.md Specifications:**
+- [x] `preprocess_data.md`
+- [x] `train_models.md`
+- [x] `evaluate_models.md`
+- [x] `run_inference.md`
+- [x] `select_model.md`
+- [x] `persist_artifacts.md`
+- [x] `detect_language.md`
+- [x] `translate_to_english.md`
+- [x] `confidence_router.md`
+- [x] `draft_response.md`
+- [x] `log_interaction.md`
+
+**After Running Notebook:**
+- [ ] `artifacts/model.pkl` (trained model)
+- [ ] `artifacts/vectorizer.pkl` (TF-IDF)
+- [ ] `artifacts/encoder.pkl` (label encoder)
+- [ ] `artifacts/evaluation_results.json` (metrics)
+- [ ] `data/interactions.db` (SQLite with logged tickets)
+
+## Next Steps
+
+1. **Run `setup_database.py`** to initialize SQLite
+2. **Run `test_system.py`** to validate components
+3. **Open `INTEGRATION_GUIDE.py`** for step-by-step notebook integration
+4. **Execute `customer_support_pipeline.ipynb`** with all integrated stages
+5. **Test serving pipeline** on sample multilingual tickets
+6. **Launch Gradio UI** for manual classification
+
+## Support & Debug
+
+For detailed integration instructions, run:
+```bash
+python INTEGRATION_GUIDE.py
+```
+
+This will print the complete step-by-step guide to console. You can also save it:
+```bash
+python INTEGRATION_GUIDE.py --save
+# Creates: INTEGRATION_GUIDE.txt
+```
+
+For system validation:
+```bash
+python test_system.py
+# Runs 6 validation tests and reports results
+```
+
+---
+
+**Last Updated:** 2024  
+**Status:** ✅ Ready for Integration  
+**Test Coverage:** 6/6 validation tests  
+**Component Count:** 11 SKILL.md + 7 Python nodes + 3 tools + 1 notebook
