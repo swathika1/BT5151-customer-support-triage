@@ -1,0 +1,21 @@
+{
+  "model_name": "Linear SVM",
+  "trained_at": "2026-03-22T19:30:20.706767",
+  "n_classes": 11,
+  "classes": [
+    "ACCOUNT",
+    "CANCEL",
+    "CONTACT",
+    "DELIVERY",
+    "FEEDBACK",
+    "INVOICE",
+    "ORDER",
+    "PAYMENT",
+    "REFUND",
+    "SHIPPING",
+    "SUBSCRIPTION"
+  ],
+  "macro_f1": 0.9984,
+  "weighted_f1": 0.9985,
+  "n_training_samples": 18809
+}
