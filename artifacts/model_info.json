@@ -1,6 +1,6 @@
 {
   "model_name": "Linear SVM",
-  "trained_at": "2026-03-22T20:05:00.275924",
+  "trained_at": "2026-03-23T12:59:03.646874",
   "n_classes": 11,
   "classes": [
     "ACCOUNT",
