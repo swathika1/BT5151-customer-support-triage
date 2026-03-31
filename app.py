@@ -15,7 +15,9 @@ import pandas as pd
 import numpy as np
 
 # UI
-import gradio as gr
+from http.server import HTTPServer, BaseHTTPRequestHandler
+import json as json_module
+from urllib.parse import urlparse, parse_qs
 
 # ML
 from sklearn.model_selection import train_test_split, GridSearchCV
@@ -233,6 +235,72 @@ def load_bitext_dataset():
             ("Where is my package?", "DELIVERY"),
         ], columns=['instruction', 'category'])
         return df
+
+
+def load_trained_pipeline():
+    """Load trained model and vectorizer from artifacts, or train if not available."""
+    print("[Pipeline] Checking for trained artifacts...")
+    
+    # Check if artifacts exist
+    if os.path.exists(MODEL_PATH) and os.path.exists(VECTORIZER_PATH):
+        try:
+            print(f"[Pipeline] Loading model from {MODEL_PATH}...")
+            with open(MODEL_PATH, "rb") as f:
+                model = pickle.load(f)
+            
+            print(f"[Pipeline] Loading vectorizer from {VECTORIZER_PATH}...")
+            with open(VECTORIZER_PATH, "rb") as f:
+                vectorizer = pickle.load(f)
+            
+            print("[Pipeline] ✓ Artifacts loaded successfully")
+            return model, vectorizer
+        except Exception as e:
+            print(f"[Pipeline] ⚠ Failed to load artifacts: {str(e)}")
+            print("[Pipeline] Running training pipeline instead...")
+    else:
+        print("[Pipeline] ⚠ Trained artifacts not found")
+        print("[Pipeline] Running training pipeline to generate artifacts...")
+    
+    # If artifacts don't exist, run the full training pipeline
+    print("\n" + "="*80)
+    print("RUNNING FULL TRAINING PIPELINE")
+    print("="*80 + "\n")
+    
+    # Load data
+    df = load_bitext_dataset()
+    state = SupportAgentState(raw_data=df, messages=[])
+    
+    # Run all training nodes
+    state = preprocess_data_node(state)
+    state = train_models_node(state)
+    state = evaluate_models_node(state)
+    state = select_model_node(state)
+    state = persist_artifacts_node(state)
+    
+    print("\n" + "="*80)
+    print("TRAINING COMPLETE - artifacts saved to disk")
+    print("="*80 + "\n")
+    
+    # Return the trained model and vectorizer
+    return state.selected_model, state.tfidf_vectorizer
+
+
+# ============================================================================
+# UTILITY FUNCTIONS
+# ============================================================================
+
+def preprocess_text(text):
+    """Preprocess text for model input (matching training preprocessing)"""
+    text = str(text).lower()
+    text = re.sub(r'\{\{.*?\}\}', '', text)  # Remove {{placeholders}}
+    text = re.sub(r'http\S+|www\S+', '', text)  # Remove URLs
+    text = re.sub(r'\S+@\S+', '', text)  # Remove emails
+    text = re.sub(r'#\w+', '', text)  # Remove hashtags
+    text = re.sub(r'[^a-z0-9\s]', ' ', text)  # Keep only alphanumeric
+    text = re.sub(r'\s+', ' ', text).strip()  # Normalize whitespace
+    return text
+
+CONFIDENCE_THRESHOLD = 0.70  # Threshold for high/low confidence responses
 
 
 # ============================================================================
@@ -597,23 +665,88 @@ def confidence_router_node(state: SupportAgentState) -> SupportAgentState:
 
 
 def draft_response_node(state: SupportAgentState) -> SupportAgentState:
-    """Generate customer response."""
+    """Generate customer response based on category and confidence."""
     print(f"[DraftResponseNode] Drafting response...")
     
     category = state.predicted_label
+    confidence = state.confidence_score
     route = state.route_decision
     
-    if category not in RESPONSE_TEMPLATES:
-        base_response = f"Thank you for contacting us about {category.lower()}. A specialist will assist you shortly."
-    else:
-        base_response = RESPONSE_TEMPLATES[category].get(
-            route,
-            "Thank you for your inquiry. A specialist will assist you shortly."
-        )
+    # Generate contextual responses based on category and actual query
+    category_responses = {
+        "ACCOUNT": {
+            "HIGH": f"I understand you need help with your account. For security reasons, I can assist with password resets and account access issues. Can you clarify what specifically you need help with?",
+            "MID": "I can help with your account-related inquiry. Could you provide more details about what you need assistance with?",
+            "LOW": "Your inquiry seems to be account-related. To provide the best assistance, could you describe your issue in more detail?"
+        },
+        "CANCEL": {
+            "HIGH": "I understand you'd like to cancel a service or subscription. I can help process that for you. Which service would you like to cancel?",
+            "MID": "It sounds like you want to cancel something. Can you tell me which service or subscription you're referring to?",
+            "LOW": "Your request involves cancellation. Could you provide more details about what you'd like to cancel?"
+        },
+        "CONTACT": {
+            "HIGH": "I can help you get in touch with our support team. Our support team is available 9 AM - 6 PM EST, Monday-Friday. What's your inquiry about?",
+            "MID": "You're looking to contact support. Can you tell me what your issue is so I can direct you properly?",
+            "LOW": "You'd like to contact our team. Please describe your issue so I can help or route you appropriately."
+        },
+        "DELIVERY": {
+            "HIGH": "I can help you track your delivery or resolve any shipping issues. Do you have your order or tracking number handy?",
+            "MID": "It sounds like you have a delivery-related question. Can you provide your order number so I can assist?",
+            "LOW": "Your inquiry is about delivery or shipping. Could you provide more information about your order?"
+        },
+        "FEEDBACK": {
+            "HIGH": "Thank you for taking the time to share your feedback with us. We genuinely value your insights to help us improve.",
+            "MID": "We appreciate your feedback. Could you share more details about your experience?",
+            "LOW": "Thank you for reaching out with feedback. We'd like to understand your experience better."
+        },
+        "INVOICE": {
+            "HIGH": "I can help you with your invoice. Your latest invoices are available in your account dashboard. What specific information do you need?",
+            "MID": "You need help with an invoice. Can you provide the invoice date or order number?",
+            "LOW": "Your inquiry is about billing or invoices. Please provide more details about what you need."
+        },
+        "ORDER": {
+            "HIGH": "I can assist with your order inquiry. Do you need help tracking it, modifying it, or have another question?",
+            "MID": "You have a question about an order. Can you provide your order number and what you need help with?",
+            "LOW": "Your inquiry involves an order. Could you provide more details about what you need?"
+        },
+        "PAYMENT": {
+            "HIGH": "I can help with payment-related issues. Can you describe what payment problem you're experiencing?",
+            "MID": "It sounds like you have a payment question or issue. Can you provide more details?",
+            "LOW": "Your inquiry is payment-related. Could you explain what you're experiencing?"
+        },
+        "REFUND": {
+            "HIGH": "I understand you'd like to request a refund. I can help process that. Which order or purchase does this relate to?",
+            "MID": "You're asking about a refund. Can you provide the order number or purchase details?",
+            "LOW": "Your request is about a refund. Could you provide more information about which order you're referring to?"
+        },
+        "SHIPPING": {
+            "HIGH": "I can help you with shipping information and tracking. Can you provide your tracking number or order number?",
+            "MID": "You have a shipping-related question. Can you share your order number?",
+            "LOW": "Your inquiry is about shipping. Please provide details about your order."
+        },
+        "SUBSCRIPTION": {
+            "HIGH": "I can assist with your subscription. Would you like to modify, cancel, or get information about your plan?",
+            "MID": "You have a subscription-related question. What would you like to do with your subscription?",
+            "LOW": "Your inquiry involves your subscription. Could you clarify what you need help with?"
+        }
+    }
     
-    state.response_final = base_response
-    print(f"[DraftResponseNode] Response: {base_response[:80]}...")
-    state.messages.append(f"[draft_response] {base_response[:100]}...")
+    # Determine confidence level
+    if confidence >= 0.85:
+        conf_level = "HIGH"
+    elif confidence >= 0.65:
+        conf_level = "MID"
+    else:
+        conf_level = "LOW"
+    
+    # Get response from category-specific templates
+    if category in category_responses:
+        state.response_final = category_responses[category].get(conf_level, "Thank you for contacting support. How can I assist you today?")
+    else:
+        state.response_final = "Thank you for reaching out. Our support team will be happy to help you. Could you provide more details about your inquiry?"
+    
+    print(f"[DraftResponseNode] Response: {state.response_final[:80]}...")
+    state.messages.append(f"[draft_response] {state.response_final[:100]}...")
     return state
 
 
@@ -708,50 +841,430 @@ def generate_response(predicted_class, confidence):
     return resp
 
 def classify_query(query):
+    """Full serving pipeline with all nodes executed."""
     if not query or len(query.strip()) < 3:
-        return "<div style='padding:30px;background:#fee;border-radius:20px;text-align:center;'><h2 style='color:#c00;margin:0;'>⚠️ Invalid</h2></div>", "", 0.0
+        return {"error": "Query too short"}, 0.0
     
-    pred, conf, probs = predict_with_confidence(query, model, vectorizer)
-    resp = generate_response(pred, conf)
-    sorted_probs = sorted(probs.items(), key=lambda x: x[1], reverse=True)
+    print("\n" + "="*80)
+    print(f"PROCESSING NEW QUERY: {query[:100]}")
+    print("="*80 + "\n")
     
-    gradients = ["linear-gradient(135deg, #667eea 0%, #764ba2 100%)", "linear-gradient(135deg, #f093fb 0%, #f5576c 100%)", "linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)"]
+    # Create state for this query
+    state = SupportAgentState(raw_message=query)
     
-    bars = ""
-    for i, (cat, prob) in enumerate(sorted_probs):
-        pct = prob * 100
-        grad = gradients[i] if i < len(gradients) else gradients[-1]
-        emoji = "🚚" if "ship" in cat else ("🔐" if "account" in cat else "💰")
-        bars += f"<div style='margin-bottom:24px;'><div style='display:flex;justify-content:space-between;margin-bottom:10px;'><span style='font-size:22px;font-weight:700;'>{emoji} {cat.upper()}</span><span style='font-size:30px;font-weight:800;background:{grad};-webkit-background-clip:text;-webkit-text-fill-color:transparent;'>{pct:.1f}%</span></div><div style='background:#e2e8f0;border-radius:12px;height:36px;overflow:hidden;'><div style='background:{grad};height:100%;width:{pct}%;border-radius:12px;'></div></div></div>"
+    # Execute full serving pipeline (all 11 nodes)
+    print(">>> STARTING FULL SERVING PIPELINE <<<\n")
+    state = detect_language_node(state)
+    state = translate_to_english_node(state)
+    state = run_inference_node(state)
+    state = confidence_router_node(state)
+    state = draft_response_node(state)
+    state = log_interaction_node(state)
+    print("\n>>> PIPELINE COMPLETE <<<\n")
     
-    html = f"<div style='font-family:system-ui;'><div style='background:linear-gradient(135deg,#667eea 0%,#764ba2 100%);padding:60px 40px;border-radius:24px;box-shadow:0 20px 60px rgba(102,126,234,0.5);margin-bottom:30px;text-align:center;'><p style='color:rgba(255,255,255,0.9);font-size:14px;font-weight:600;text-transform:uppercase;letter-spacing:3px;margin:0 0 15px 0;'>PREDICTED CATEGORY</p><h1 style='color:white;font-size:72px;margin:0;font-weight:900;text-shadow:0 4px 20px rgba(0,0,0,0.3);'>🎯 {pred.upper()}</h1><div style='margin-top:25px;display:inline-block;background:rgba(255,255,255,0.2);padding:15px 45px;border-radius:50px;'><p style='color:white;font-size:36px;margin:0;font-weight:700;'>💯 {conf:.0%}</p></div></div><div style='background:white;padding:40px;border-radius:24px;box-shadow:0 15px 50px rgba(0,0,0,0.12);'><h2 style='color:#1e293b;margin:0 0 30px 0;font-size:32px;font-weight:700;border-bottom:3px solid #e2e8f0;padding-bottom:20px;'>📊 Probability Breakdown</h2>{bars}</div></div>"
+    # Print all messages from pipeline
+    print("Pipeline trace:")
+    for msg in state.messages:
+        print(f"  {msg}")
+    print()
     
-    return html, resp, conf
+    return {
+        "category": state.predicted_label,
+        "confidence": round(state.confidence_score, 4),
+        "response": state.response_final,
+        "route": state.route_decision,
+        "language": state.detected_language
+    }, state.confidence_score
+
+
+class SupportTriageHandler(BaseHTTPRequestHandler):
+    """HTTP request handler for support triage UI and API."""
+    
+    def do_GET(self):
+        """Serve HTML interface."""
+        if self.path == "/":
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html")
+            self.end_headers()
+            
+            html = """<!DOCTYPE html>
+<html>
+<head>
+    <title>Support Triage System</title>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+        .container {
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            max-width: 900px;
+            width: 100%;
+            padding: 40px;
+        }
+        h1 {
+            color: #333;
+            margin-bottom: 10px;
+            font-size: 28px;
+        }
+        .subtitle {
+            color: #666;
+            margin-bottom: 30px;
+            font-size: 14px;
+        }
+        .grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 30px;
+            margin-bottom: 20px;
+        }
+        .column {
+            display: flex;
+            flex-direction: column;
+        }
+        @media (max-width: 768px) {
+            .grid { grid-template-columns: 1fr; }
+        }
+        label {
+            font-weight: 600;
+            color: #333;
+            margin-bottom: 10px;
+            display: block;
+        }
+        textarea {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            font-family: inherit;
+            font-size: 14px;
+            resize: vertical;
+            transition: border-color 0.3s;
+        }
+        textarea:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+        button {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            padding: 14px 28px;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            margin-top: 10px;
+            transition: transform 0.2s;
+        }
+        button:hover { transform: translateY(-2px); }
+        button:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
+        }
+        .output-section {
+            background: #f5f5f5;
+            padding: 20px;
+            border-radius: 8px;
+            margin-top: 20px;
+        }
+        .result-item {
+            display: flex;
+            justify-content: space-between;
+            padding: 12px 0;
+            border-bottom: 1px solid #ddd;
+        }
+        .result-item:last-child { border-bottom: none; }
+        .result-label {
+            font-weight: 600;
+            color: #666;
+        }
+        .result-value {
+            color: #333;
+            font-weight: 500;
+        }
+        .confidence-bar {
+            background: #e0e0e0;
+            height: 8px;
+            border-radius: 4px;
+            margin: 5px 0;
+            overflow: hidden;
+        }
+        .confidence-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
+            border-radius: 4px;
+            transition: width 0.5s ease;
+        }
+        .error {
+            color: #d32f2f;
+            padding: 12px;
+            background: #ffebee;
+            border-radius: 8px;
+            margin-top: 10px;
+        }
+        .success {
+            color: #388e3c;
+            padding: 12px;
+            background: #e8f5e9;
+            border-radius: 8px;
+            margin-top: 10px;
+        }
+        .loading {
+            display: none;
+            text-align: center;
+            color: #666;
+            margin-top: 10px;
+        }
+        .loading.active {
+            display: block;
+        }
+        .spinner {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid #e0e0e0;
+            border-top: 3px solid #667eea;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        .examples {
+            margin-top: 20px;
+            padding: 15px;
+            background: #f0f7ff;
+            border-radius: 8px;
+            border-left: 4px solid #667eea;
+        }
+        .examples-title {
+            font-weight: 600;
+            color: #667eea;
+            margin-bottom: 10px;
+            font-size: 13px;
+        }
+        .example-btn {
+            display: inline-block;
+            background: white;
+            color: #667eea;
+            border: 1px solid #667eea;
+            padding: 6px 12px;
+            border-radius: 20px;
+            margin: 4px 5px 4px 0;
+            cursor: pointer;
+            font-size: 12px;
+            transition: all 0.3s;
+        }
+        .example-btn:hover {
+            background: #667eea;
+            color: white;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🤖 Support Ticket Triage</h1>
+        <p class="subtitle">Classify customer queries and generate responses</p>
+        
+        <div class="grid">
+            <div class="column">
+                <label for="query">💬 Customer Query</label>
+                <textarea id="query" placeholder="Enter customer query..." rows="8"></textarea>
+                
+                <div class="examples">
+                    <div class="examples-title">Try these examples:</div>
+                    <button class="example-btn" onclick="setExample('I need to reset my password')">Reset password</button>
+                    <button class="example-btn" onclick="setExample('I want to cancel my order 1234')">Cancel order</button>
+                    <button class="example-btn" onclick="setExample('Where is my package?')">Track package</button>
+                    <button class="example-btn" onclick="setExample('Can I get a refund?')">Request refund</button>
+                    <button class="example-btn" onclick="setExample('How do I contact support?')">Contact info</button>
+                </div>
+                
+                <button onclick="analyzeQuery()" id="submitBtn">🚀 ANALYZE</button>
+                <div class="loading" id="loading"><div class="spinner"></div> Processing...</div>
+            </div>
+            
+            <div class="column">
+                <label>📊 Results</label>
+                <div id="results" style="min-height: 180px;"></div>
+                <div id="messageContainer"></div>
+            </div>
+        </div>
+        
+        <div class="output-section">
+            <label>💬 Suggested Response</label>
+            <div id="response" style="background: white; padding: 15px; border-radius: 6px; min-height: 60px; color: #333; line-height: 1.6;"></div>
+        </div>
+    </div>
+    
+    <script>
+        function setExample(text) {
+            document.getElementById('query').value = text;
+        }
+        
+        async function analyzeQuery() {
+            const query = document.getElementById('query').value.trim();
+            if (!query) {
+                alert('Please enter a query');
+                return;
+            }
+            
+            const btn = document.getElementById('submitBtn');
+            const loading = document.getElementById('loading');
+            btn.disabled = true;
+            loading.classList.add('active');
+            
+            try {
+                const response = await fetch('/api/classify', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ query })
+                });
+                
+                const data = await response.json();
+                
+                if (data.error) {
+                    showError(data.error);
+                    clearResults();
+                } else {
+                    displayResults(data);
+                }
+            } catch (err) {
+                showError('Server error: ' + err.message);
+                clearResults();
+            } finally {
+                btn.disabled = false;
+                loading.classList.remove('active');
+            }
+        }
+        
+        function displayResults(data) {
+            const resultsHtml = `
+                <div class="output-section">
+                    <div class="result-item">
+                        <span class="result-label">Category:</span>
+                        <span class="result-value" style="font-size: 18px; color: #667eea;">${escapeHtml(data.category)}</span>
+                    </div>
+                    <div class="result-item">
+                        <span class="result-label">Confidence:</span>
+                        <span class="result-value">${(data.confidence * 100).toFixed(1)}%</span>
+                    </div>
+                    <div class="confidence-bar">
+                        <div class="confidence-fill" style="width: ${data.confidence * 100}%"></div>
+                    </div>
+                    <div class="result-item">
+                        <span class="result-label">Route:</span>
+                        <span class="result-value">${escapeHtml(data.route)}</span>
+                    </div>
+                    <div class="result-item">
+                        <span class="result-label">Language:</span>
+                        <span class="result-value">${escapeHtml(data.language)}</span>
+                    </div>
+                </div>
+            `;
+            document.getElementById('results').innerHTML = resultsHtml;
+            document.getElementById('response').textContent = data.response;
+            document.getElementById('messageContainer').innerHTML = '';
+        }
+        
+        function clearResults() {
+            document.getElementById('results').innerHTML = '';
+            document.getElementById('response').textContent = '';
+        }
+        
+        function showError(msg) {
+            document.getElementById('results').innerHTML = `<div class="error">⚠️ ${escapeHtml(msg)}</div>`;
+        }
+        
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+    </script>
+</body>
+</html>"""
+            self.wfile.write(html.encode())
+        else:
+            self.send_response(404)
+            self.end_headers()
+    
+    def do_POST(self):
+        """Handle API requests."""
+        if self.path == "/api/classify":
+            try:
+                content_length = int(self.headers.get("Content-Length", 0))
+                if content_length == 0:
+                    self.send_json({"error": "No request body"}, 400)
+                    return
+                    
+                body = self.rfile.read(content_length).decode('utf-8')
+                if not body:
+                    self.send_json({"error": "Empty request body"}, 400)
+                    return
+                
+                data = json_module.loads(body)
+                query = data.get("query", "").strip()
+                
+                if not query:
+                    self.send_json({"error": "Empty query"}, 400)
+                    return
+                
+                result, confidence = classify_query(query)
+                
+                if "error" in result:
+                    self.send_json(result, 400)
+                else:
+                    self.send_json(result, 200)
+                    
+            except json_module.JSONDecodeError as e:
+                print(f"[Server] JSON decode error: {str(e)}")
+                self.send_json({"error": f"Invalid JSON: {str(e)}"}, 400)
+            except Exception as e:
+                print(f"[Server] Error processing request: {str(e)}")
+                self.send_json({"error": f"Server error: {str(e)}"}, 500)
+        else:
+            self.send_response(404)
+            self.end_headers()
+    
+    def send_json(self, data, code):
+        """Send JSON response."""
+        self.send_response(code)
+        self.send_header("Content-Type", "application/json")
+        self.end_headers()
+        self.wfile.write(json_module.dumps(data).encode())
+    
+    def log_message(self, format, *args):
+        """Suppress HTTP server logs."""
+        pass
+
 
 if __name__ == "__main__":
     print("\n🤖 AI SUPPORT TRIAGE\n")
     model, vectorizer = load_trained_pipeline()
     
-    css = ".gradio-container{background:linear-gradient(135deg,#667eea 0%,#764ba2 100%)!important;}button.primary{background:linear-gradient(135deg,#f093fb 0%,#f5576c 100%)!important;border:none!important;color:white!important;font-size:24px!important;font-weight:800!important;padding:26px 50px!important;border-radius:16px!important;box-shadow:0 15px 45px rgba(245,87,108,0.7)!important;}button.primary:hover{transform:translateY(-6px)!important;box-shadow:0 25px 65px rgba(245,87,108,0.9)!important;}textarea{font-size:18px!important;border:3px solid #e2e8f0!important;border-radius:16px!important;padding:20px!important;}textarea:focus{border-color:#667eea!important;box-shadow:0 0 0 4px rgba(102,126,234,0.2)!important;}"
+    print("\n" + "="*80)
+    print("HTTP SERVER STARTING")
+    print("🌐 Open your browser: http://localhost:7860")
+    print("="*80 + "\n")
     
-    with gr.Blocks(theme=gr.themes.Soft()) as demo:
-        gr.HTML("<div style='text-align:center;padding:60px 30px;background:linear-gradient(135deg,#667eea 0%,#764ba2 100%);border-radius:28px;margin-bottom:40px;box-shadow:0 20px 70px rgba(102,126,234,0.6);'><h1 style='color:white;font-size:80px;margin:0 0 20px 0;font-weight:900;text-shadow:0 6px 20px rgba(0,0,0,0.3);'>🤖 AI SUPPORT TRIAGE</h1><p style='color:rgba(255,255,255,0.95);font-size:28px;margin:0;font-weight:600;'>Real-Time ML Classification</p></div>")
-        
-        with gr.Row():
-            with gr.Column(scale=1):
-                gr.Markdown("### 💬 Query")
-                query_input = gr.Textbox(placeholder="Enter question...", lines=8, show_label=False)
-                submit_btn = gr.Button("🚀 ANALYZE", variant="primary", size="lg")
-                gr.Examples(examples=[["Package lost"], ["Can't login"], ["Broken product"]], inputs=query_input)
-            with gr.Column(scale=1):
-                prediction_output = gr.HTML()
-                gr.Markdown("### 📈 Confidence")
-                confidence_bar = gr.Slider(minimum=0, maximum=1, interactive=False, show_label=False)
-        
-        gr.HTML("<div style='height:40px;background:linear-gradient(90deg,#667eea 0%,#764ba2 100%);margin:40px 0;border-radius:10px;'></div>")
-        gr.Markdown("### 💬 Response")
-        response_output = gr.Textbox(lines=6, show_label=False)
-        
-        submit_btn.click(fn=classify_query, inputs=query_input, outputs=[prediction_output, response_output, confidence_bar])
+    server = HTTPServer(("0.0.0.0", 7860), SupportTriageHandler)
     
-    demo.launch(server_name="0.0.0.0", server_port=7860, share=False, css=css)
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        print("\n\nShutting down server...")
+        server.shutdown()

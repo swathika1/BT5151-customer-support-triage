@@ -16,7 +16,7 @@ datasets==2.19.1
 huggingface-hub==0.23.5
 
 # UI & Web Interface
-gradio==4.26.0
+# (Using native Python HTTP server - no external dependency needed)
 
 # Utilities & Configuration
 python-dotenv==1.0.0
