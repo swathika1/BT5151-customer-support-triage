@@ -35,8 +35,7 @@ from sklearn.metrics import (
 )
 
 # LangChain
-from langchain_openai import ChatOpenAI
-from langchain_core.messages import SystemMessage, HumanMessage
+from openai import OpenAI
 
 # Pydantic
 from pydantic import BaseModel, Field, ConfigDict
@@ -62,14 +61,17 @@ except:
 api_key = os.getenv("OPENAI_API_KEY", "").strip()
 HAS_OPENAI_API_KEY = bool(api_key and api_key != "sk-your-openai-api-key-here")
 HAS_LLM = False
-llm = None
+llm_client = None
 if HAS_OPENAI_API_KEY:
     try:
-        llm = ChatOpenAI(model="gpt-4o-mini", temperature=0.0)
+        # Initialize with explicit API key
+        llm_client = OpenAI(api_key=api_key)
         HAS_LLM = True
         print("✓ OpenAI API key detected - LLM features enabled")
     except Exception as e:
         print(f"⚠ LLM initialization failed: {str(e)[:100]}")
+        HAS_LLM = False
+        llm_client = None
 
 # Paths
 ARTIFACTS_DIR = "artifacts"
@@ -578,14 +580,18 @@ def translate_to_english_node(state: SupportAgentState) -> SupportAgentState:
         print("[TranslateNode] No LLM available - using original")
     else:
         try:
-            response = llm.invoke([
-                HumanMessage(content=f"Translate to English, return ONLY the translation:\n\n{state.raw_message}")
-            ])
-            state.translated_message = response.content.strip()
+            response = llm_client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[
+                    {"role": "user", "content": f"Translate to English, return ONLY the translation:\n\n{state.raw_message}"}
+                ],
+                temperature=0.0
+            )
+            state.translated_message = response.choices[0].message.content.strip()
             print("[TranslateNode] Translation complete")
         except Exception as e:
             state.translated_message = state.raw_message
-            print(f"[TranslateNode] Translation failed - using original")
+            print(f"[TranslateNode] Translation failed: {str(e)[:50]} - using original")
     
     state.messages.append(f"[translate_to_english] Message: {state.translated_message[:80]}...")
     return state
