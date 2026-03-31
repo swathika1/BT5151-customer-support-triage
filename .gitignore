@@ -45,7 +45,19 @@ Thumbs.db
 .ipynb_checkpoints
 *.ipynb_orig
 
-# Data
+# Data & Generated Artifacts
 *.csv
 *.xlsx
+artifacts/
+*.pkl
+*.db
+*.json
+
+# Generated Plots/Visualizations
+*.png
+*.jpg
+*.jpeg
+per_class_f1.*
+precision_confidence_curve.*
+confusion_matrix.*
 *.xls
