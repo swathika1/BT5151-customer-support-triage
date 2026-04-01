@@ -1,108 +1,100 @@
 ---
 name: log_interaction
-description: "Store customer interaction details and audit trail to SQLite database for compliance and feedback collection"
+description: "Store customer-scoped chat turns, context JSON, routing trace, and admin feedback fields in SQLite"
 mode: organisational
 ---
 
 ## When to use
-Seventh and final node in serving pipeline. Logs interaction details to database for audit, feedback collection, and optional retraining.
+Final persistence node in the serving pipeline. Logs each chat turn so the support UI, admin UI, and feedback loop all work from the same record.
 
 ## How to execute
-1. Open SQLite connection to artifacts/support_system.db
-2. Insert one row into interactions table:
-   - conversation_id: UUID from state
-   - raw_message: Original customer message
-   - detected_language: Language identifier (from detect_language_node)
-   - translated_message: English version (from translate_to_english_node)
-   - predicted_label: Model's prediction (from run_inference_node)
-   - confidence_score: Model's confidence (from run_inference_node)
-   - route_decision: Routing tier (from confidence_router_node)
-   - response_final: Sent response (from draft_response_node)
-   - created_at: Current timestamp
-3. Insert N rows into trace_logs table (one per node execution):
-   - interaction_id: Foreign key to interactions row
-   - active_skill: Node name (detect_language, translate_to_english, etc.)
-   - state_snapshot: JSON serialization of full state
-   - timestamp: Execution timestamp
-4. Handle errors gracefully:
-   - If DB write fails, log warning but don't crash serving pipeline
-   - Customer still gets response even if logging fails
-5. Commit transaction and close connection
+1. Open a SQLite connection to `artifacts/interactions.db`
+2. Ensure the interactions schema exists and includes:
+   - customer identity fields
+   - model outputs
+   - routing outputs
+   - response-generation metadata
+   - scoped `context_json`
+   - clarification state
+   - admin feedback fields
+3. Insert one row per user turn into `interactions`
+4. Persist structured trace data in the same row so the admin UI can reconstruct the full pipeline
+5. Handle failures gracefully
+   - If logging fails, the customer should still receive the reply
+6. Commit and close the connection
 
 ## Inputs from agent state
-- conversation_id: UUID (from initial state setup)
-- raw_message: Original customer message
-- detected_language: Language from detect_language_node
-- translated_message: English message from translate_to_english_node
-- predicted_label: Category from run_inference_node
-- confidence_score: Confidence from run_inference_node
-- route_decision: Routing decision from confidence_router_node
-- response_final: Final response from draft_response_node
-- trace_logs: List of logged entries from all nodes
+- `timestamp`
+- `customer_id`
+- `customer_name`
+- `raw_message`
+- `detected_language`
+- `translated_message`
+- `predicted_label`
+- `confidence_score`
+- `route_decision`
+- `response_final`
+- `class_probabilities`
+- `trace_logs`
+- `response_generation`
+- `context_json`
+- `needs_more_context`
+- `clarification_prompt`
+- `resolved_order_id`
 
 ## Outputs to agent state
-- (No state modifications; side effect is database write)
+- `interaction_id`: database id of the stored interaction
 
-## Database Schema
+## Database schema
 ```sql
 CREATE TABLE interactions (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    conversation_id TEXT UNIQUE NOT NULL,
-    raw_message TEXT NOT NULL,
+    timestamp TEXT,
+    raw_message TEXT,
     detected_language TEXT,
     translated_message TEXT,
+    customer_id TEXT,
+    customer_name TEXT,
     predicted_label TEXT,
     confidence_score REAL,
     route_decision TEXT,
-    response_final TEXT,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    response TEXT,
+    class_probabilities TEXT,
+    pipeline_trace TEXT,
+    response_generation TEXT,
+    context_json TEXT,
+    needs_more_context INTEGER DEFAULT 0,
+    clarification_prompt TEXT,
+    resolved_order_id TEXT,
+    feedback_flag INTEGER DEFAULT 0,
+    feedback_reason TEXT,
+    feedback_suggested_category TEXT,
+    feedback_updated_at TEXT
 );
 
-CREATE TABLE trace_logs (
+CREATE TABLE admin_feedback (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     interaction_id INTEGER NOT NULL,
-    active_skill TEXT,
-    state_snapshot TEXT,  -- JSON
-    timestamp TEXT,
+    flagged INTEGER NOT NULL DEFAULT 1,
+    reason TEXT,
+    suggested_category TEXT,
+    created_at TEXT NOT NULL,
     FOREIGN KEY(interaction_id) REFERENCES interactions(id)
-);
-
-CREATE TABLE feedback (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    interaction_id INTEGER NOT NULL UNIQUE,
-    admin_correction TEXT,  -- Corrected category if prediction was wrong
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY(interaction_id) REFERENCES interactions(id)
-);
-
-CREATE TABLE model_versions (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    model_name TEXT,
-    trained_at TIMESTAMP,
-    macro_f1 REAL,
-    weighted_f1 REAL,
-    n_training_samples INTEGER
 );
 ```
 
-## Output format
-(No state output; side effects are database writes)
-
-Database file: artifacts/support_system.db
+## Logging requirements
+- `customer_id` is required so the chat UI can show history for one selected user only
+- `context_json` must be stored because the admin reviewer needs to see what grounded the response
+- `needs_more_context`, `clarification_prompt`, and `resolved_order_id` must be stored so follow-up turns can continue correctly
+- `pipeline_trace` should preserve each node's summary and details for debugging and review
 
 ## Notes
-- **Audit trail purpose**: Every interaction is logged for compliance, debugging, and customer service investigation. If customer disputes a response, we have full trace of what message was sent and why.
-- **Feedback loop setup**: interactions + feedback + model_versions tables enable admin workflow:
-  1. Admin reviews interactions (via admin UI)
-  2. If model made wrong prediction, admin records correction in feedback table
-  3. Optional: retrain_from_feedback_node reads feedback table and retrains model on corrected labels
-- **State snapshot**: Complete state object (all 30+ fields) serialized to JSON in trace_logs. This enables full reconstruction of decision path. Example: "Why did the system route this to ESCALATE?" → Look at state_snapshot and see: confidence_score=0.58, tau_low=0.65, so 0.58 < 0.65 triggered escalation.
-- **Error handling**: If database write fails (disk full, permission error, etc.), log warning but don't prevent response delivery. Customer service is more important than analytics.
-- **Privacy**: Consider storing hashed customer identifiers instead of raw messages in production. Current implementation stores full messages for debugging.
-- **Performance**: SQLite is adequate for up to ~1M interactions/month. For higher volume, migrate to PostgreSQL or DynamoDB.
-- **Indexing**: Create indexes on conversation_id and created_at for fast lookups by UI:
-  ```sql
-  CREATE INDEX idx_conversation_id ON interactions(conversation_id);
-  CREATE INDEX idx_created_at ON interactions(created_at);
-  CREATE INDEX idx_interaction_fk ON trace_logs(interaction_id);
-  ```
+- Chat history should be fetched by `customer_id`, ordered by timestamp ascending for replay in the chat UI.
+- The assistant must never show raw JSON to the customer, but logging raw `context_json` internally is expected for auditability.
+- Admin reviewers should be able to determine whether the assistant followed policies such as:
+  - first-turn greeting
+  - prime eligibility handling
+  - invoice navigation guidance
+  - shipped-order cancellation restrictions
+- If policy compliance becomes part of retraining, this logged context is the source of truth.
