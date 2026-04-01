@@ -1,6 +1,6 @@
 ---
 name: apply_feedback
-description: "Process human feedback on incorrect predictions and flag for retraining"
+description: "Review customer-scoped responses, flag policy or relevance errors, and store corrections for retraining"
 mode: organisational
 tags: [feedback-loop, human-in-the-loop, quality-control]
 ---
@@ -8,139 +8,90 @@ tags: [feedback-loop, human-in-the-loop, quality-control]
 # Apply Feedback Skill
 
 ## Purpose
-
-Handle human correction and validation of model predictions. When the system makes an incorrect prediction or routing decision, admins can provide corrected labels and feedback. This skill records the feedback for potential model retraining and continuous improvement.
+Capture admin feedback on whether the assistant used the right customer context, followed policy, and produced an appropriate LLM-crafted response.
 
 ## Workflow
 
-### Input Requirements
-
+### Input requirements
 ```python
 state.feedback = {
-    "interaction_id": 42,                      # Links to original prediction
-    "original_message": "I want to cancel",
-    "original_prediction": "SUBSCRIPTION",
-    "corrected_label": "CANCEL",               # Human's correct label
+    "interaction_id": 42,
+    "original_message": "Where is my order?",
+    "customer_id": "7",
+    "original_prediction": "ORDER",
+    "corrected_label": "DELIVERY",
     "prediction_correct": False,
-    "confidence_acceptable": True,
     "routing_correct": False,
     "response_appropriate": False,
-    "feedback_notes": "Should be routed to retention team",
+    "used_correct_context": False,
+    "policy_followed": False,
+    "feedback_notes": "User asked about shipping. Bot should have requested order ID from the orders on 31/03/26.",
+    "suggested_category": "DELIVERY",
     "reviewed_by": "admin_user_id"
 }
 ```
 
-### Processing Steps
+### Processing steps
+1. Validate feedback
+   - Check `interaction_id` exists
+   - Verify `corrected_label` or `suggested_category` is a valid support category
+   - Ensure the reviewer is authorized
 
-1. **Validate Feedback**
-   - Check interaction_id exists in database
-   - Verify corrected_label is in valid category list (11 categories)
-   - Ensure reviewed_by has admin privileges
+2. Review the stored interaction holistically
+   - `raw_message`
+   - `predicted_label`
+   - `route_decision`
+   - `response`
+   - `context_json`
+   - `pipeline_trace`
 
-2. **Calculate Correction Metadata**
-   - Is prediction incorrect? (original_prediction ≠ corrected_label)
-   - Was routing decision wrong? (route_decision ≠ human expectation)
-   - How confident was system? (use original confidence_score)
-   - Confidence level of the error (was it a borderline case?)
+3. Check policy compliance
+   - Was the first reply greeted properly when it should have been?
+   - If user was not prime, did the response avoid promising fast delivery or prime-only cancellation/return privileges?
+   - If invoice-related, did the response direct the user to `My Profile -> Past Orders`?
+   - If shipped, did the response avoid offering cancellation and suggest return after delivery instead?
+   - If identifier was missing, did the bot ask for the right order or payment reference instead of guessing?
+   - Did the bot keep the final reply natural-language only and avoid printing JSON?
 
-3. **Store Feedback Record**
-   ```json
-   {
-     "feedback_id": 123,
-     "interaction_id": 42,
-     "timestamp": "2026-03-22T14:35:00Z",
-     "original_message": "I want to cancel",
-     "original_prediction": "SUBSCRIPTION",
-     "corrected_label": "CANCEL",
-     "original_confidence": 0.87,
-     "prediction_error": true,
-     "routing_error": true,
-     "response_error": true,
-     "feedback_notes": "Should be routed to retention team",
-     "reviewed_by": "admin_user_id",
-     "approved_for_retraining": false,
-     "status": "pending_review"
-   }
-   ```
+4. Store the feedback record
+   - Mark the interaction row as flagged or cleared
+   - Save feedback notes and suggested category
+   - Optionally enqueue the case for future retraining
 
-4. **Flag for Retraining (Optional)**
-   - If feedback is from trusted admin
-   - If pattern indicates systematic error
-   - Add to retraining queue
+## Recommended review checklist
+- `prediction_correct`
+- `routing_correct`
+- `response_appropriate`
+- `used_correct_context`
+- `policy_followed`
+- `suggested_category`
+- `feedback_notes`
 
 ## Output
 
-**State Updates:**
-- `state.feedback_recorded = True`
-- `state.feedback_id = 123`
-- `state.last_feedback_timestamp = "2026-03-22T14:35:00Z"`
+State or persistence updates:
+- mark interaction as flagged or cleared
+- save `feedback_reason`
+- save `feedback_suggested_category`
+- save `feedback_updated_at`
+- optionally insert a row into `admin_feedback`
 
-**Database Update:**
-- Insert into `feedback` table
-- Link to original interaction via `interaction_id` (foreign key)
-
-## Error Handling
-
-### Invalid Feedback Cases
-
-```python
-# Case 1: Interaction not found
-if interaction_id not in database:
-    raise FeedbackError("Interaction not found: {interaction_id}")
-
-# Case 2: Invalid category
-if corrected_label not in valid_categories:
-    raise FeedbackError("Invalid category: {corrected_label}")
-
-# Case 3: Unauthorized reviewer
-if reviewed_by not in admin_users:
-    raise FeedbackError("User {reviewed_by} not authorized to provide feedback")
+## Example stored feedback record
+```json
+{
+  "interaction_id": 42,
+  "flagged": true,
+  "reason": "Bot answered with a generic order status but the user actually asked for refund status.",
+  "suggested_category": "REFUND",
+  "created_at": "2026-04-01T15:20:00Z"
+}
 ```
 
-## Integration Points
-
-**Triggered By:**
-- Admin Dashboard (on-demand correction)
-- Batch Feedback Upload (CSV import)
-- Human Review Queue (systematic errors)
-
-**Feeds Into:**
-- Analytics Pipeline (accuracy tracking)
-- Retraining Pipeline (model improvement)
-- Quality Metrics (category-level performance)
-
-## Metrics Tracked
-
-Per feedback entry:
-- Prediction accuracy (binary: correct/incorrect)
-- Routing accuracy (binary)
-- Response quality (binary)
-- Category of error (which category was hardest?)
-- Confidence of error (was it a close call?)
-- Time to correction (how long before admin caught it?)
-
-## Data Retention
-
-- All feedback stored indefinitely
-- Hash original message for PRIVACY compliance
-- Keep audit trail of reviewer corrections over time
-- Enable retraining from historical feedback
-
-## Future Enhancement
-
-**Retrain Trigger:**
-```python
-if approved_feedback_count >= 100:
-    trigger_retrain_pipeline(
-        base_training_data,
-        approved_feedback_corrections
-    )
-```
-
-When approved feedback reaches threshold:
-1. Combine original 26,872 training samples with corrected feedback
-2. Retrain all 3 models with expanded dataset
-3. Re-evaluate on original validation set
-4. Compare metrics vs. previous model version
-5. Deploy if improvement ≥ 0.5% macro F1
-
+## Notes
+- Feedback should focus on grounded correctness, not just tone.
+- The most important question is whether the response matched the selected customer's actual data and the business rules.
+- High-value feedback cases for retraining:
+  - wrong intent after a short clarification follow-up
+  - wrong order chosen when user provided only a date
+  - response violated prime, invoice, or shipped-order policy
+  - response exposed irrelevant details instead of narrowing to the asked topic
