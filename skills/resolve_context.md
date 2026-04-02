@@ -11,10 +11,14 @@ After `run_inference_node` and before `confidence_router_node` or `draft_respons
 Turn the selected customer's CSV data into structured internal context that the response LLM can safely use.
 
 ## How to execute
-1. Load only the selected customer's profile from `customers_data.csv`
-2. Load only orders whose `CID` matches that customer from `orders_data.csv`
-3. Use prior chat history for this same customer to interpret short clarification follow-ups
-4. Determine whether the query is about:
+1. Load only the selected customer's profile from `ecommerce_data/ecommerce_customers.csv`
+2. Load only orders whose `CID` matches that customer from `ecommerce_data/ecommerce_orders.csv`
+3. Enrich order context with seller, transporter, and product metadata from:
+   - `ecommerce_data/ecommerce_sellers.csv`
+   - `ecommerce_data/ecommerce_transporters.csv`
+   - `ecommerce_data/ecommerce_products.csv`
+4. Use prior chat history for this same customer to interpret short clarification follow-ups
+5. Determine whether the query is about:
    - account
    - subscription
    - invoice
@@ -24,12 +28,13 @@ Turn the selected customer's CSV data into structured internal context that the 
    - cancellation
    - a general order query
 
-5. If the query is tied to a particular order or payment:
+6. If the query is tied to a particular order or payment:
    - try to resolve the order ID or payment reference from the latest message
    - if missing, reuse the unresolved prior interaction only when the new message is clearly a follow-up
    - if user provides a date but not an ID, find only that user's orders on that date and prepare a clarification list
+   - if the user asks a generic delivery-status or delay question such as "where is my order" or "why is my order late" and no explicit identifier is present, default to the customer's latest order
 
-6. Build `context_json`
+7. Build `context_json`
    - always include scoped customer profile
    - include only the relevant order and the relevant subsection for the exact query
    - examples:
@@ -37,6 +42,7 @@ Turn the selected customer's CSV data into structured internal context that the 
      - shipping query -> delivery fields
      - payment query -> payment fields
      - invoice query -> billing and order reference fields
+   - include seller and transporter details when a selected order exists
    - prepare service-recovery facts when the user is reporting a delay, non-delivery, or missed ETA
      - examples:
        - selected order is overdue
@@ -44,7 +50,7 @@ Turn the selected customer's CSV data into structured internal context that the 
        - the system has no transporter root-cause detail yet
        - escalation to customer support/logistics is recommended
 
-7. Set:
+8. Set:
    - `context_json`
    - `resolved_order_id`
    - `needs_more_context`
@@ -64,6 +70,7 @@ Turn the selected customer's CSV data into structured internal context that the 
   - payment status
 - Internal JSON is for grounding only and must not be shown directly to the user
 - If the user reports a missed delivery or asks why an order is late, capture whether the selected or candidate orders look overdue so the downstream response skill can decide whether an apology and escalation note are appropriate
+- For generic delay/tracking questions without an explicit order ID, it is acceptable to use the latest order for that customer instead of forcing clarification
 - If the available data does not include a transporter reason, store that as missing context rather than inventing a cause
 
 ## Inputs from agent state

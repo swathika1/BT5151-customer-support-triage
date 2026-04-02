@@ -1,5 +1,4 @@
 import os
-import csv
 import json
 import pickle
 import re
@@ -79,6 +78,26 @@ from openai import OpenAI
 
 # Pydantic
 from pydantic import BaseModel, Field, ConfigDict
+from skills.ecommerce_context import (
+    CATEGORY_OPTIONS,
+    ORDER_RELATED_CATEGORIES,
+    prepare_contextual_inference_message,
+    resolve_customer_context,
+)
+from skills.ecommerce_repository import (
+    build_user_summary as build_ecommerce_user_summary,
+    clean_csv_value,
+    format_context_date,
+    format_order_summary,
+    get_customer_scope as get_ecommerce_customer_scope,
+    list_chat_users as list_ecommerce_chat_users,
+    parse_flexible_datetime,
+)
+from skills.ecommerce_response import (
+    build_policy_response_blueprint,
+    build_relevant_context_slice,
+    enforce_response_policies,
+)
 
 # Try to load datasets for Bitext
 try:
@@ -121,80 +140,7 @@ ENCODER_PATH = f"{ARTIFACTS_DIR}/label_encoder.pkl"
 THRESHOLDS_PATH = f"{ARTIFACTS_DIR}/thresholds.json"
 MODEL_INFO_PATH = f"{ARTIFACTS_DIR}/model_info.json"
 DB_PATH = f"{ARTIFACTS_DIR}/interactions.db"
-CUSTOMERS_DATA_PATH = BASE_DIR / "customers_data.csv"
-ORDERS_DATA_PATH = BASE_DIR / "orders_data.csv"
 SKILLS_DIR = BASE_DIR / "skills"
-
-ORDER_RELATED_CATEGORIES = {
-    "CANCEL",
-    "DELIVERY",
-    "INVOICE",
-    "ORDER",
-    "PAYMENT",
-    "REFUND",
-    "SHIPPING",
-}
-
-# Response templates for each category
-RESPONSE_TEMPLATES = {
-    "ACCOUNT": {
-        "AUTO_REPLY": "We've sent password reset instructions to your email. If you don't see it, check your spam folder. You'll have access restored within minutes.",
-        "CLARIFY": "I can help with your account. Can you confirm the email address associated with your account?",
-        "ESCALATE": "For security reasons, account issues require manual verification. A specialist will contact you within 2 hours."
-    },
-    "CANCEL": {
-        "AUTO_REPLY": "Your cancellation request has been processed. You may be eligible for a refund depending on your plan. Check your confirmation email.",
-        "CLARIFY": "I'd like to help. Can you tell me which service or subscription you'd like to cancel?",
-        "ESCALATE": "Your request needs special review. An agent will be in touch within 24 hours to discuss options."
-    },
-    "CONTACT": {
-        "AUTO_REPLY": "You can reach our support team at support@company.com or call 1-800-SUPPORT. Our hours are 9 AM - 6 PM EST, Monday-Friday.",
-        "CLARIFY": "What issue can I help direct you to the right department for?",
-        "ESCALATE": "Your inquiry requires specialist attention. A representative will reach you shortly."
-    },
-    "DELIVERY": {
-        "AUTO_REPLY": "Your order is on its way! Check your confirmation email for a tracking link. Delivery typically takes 3-5 business days.",
-        "CLARIFY": "I can help track your order. Could you provide your order number?",
-        "ESCALATE": "We're looking into your delivery issue. A specialist will contact you with an update within 24 hours."
-    },
-    "FEEDBACK": {
-        "AUTO_REPLY": "Thank you for your feedback! We genuinely appreciate your insights and use them to improve our service.",
-        "CLARIFY": "We'd love to hear more about your experience. What can we improve?",
-        "ESCALATE": "Your feedback has been escalated to our management team for priority review."
-    },
-    "INVOICE": {
-        "AUTO_REPLY": "Your latest invoice is available in your account dashboard. Log in to view charges and payment history.",
-        "CLARIFY": "I can help with your invoice. What date or amount are you looking for?",
-        "ESCALATE": "Our billing team will investigate your invoice inquiry and contact you within 24 hours."
-    },
-    "ORDER": {
-        "AUTO_REPLY": "Your order has been confirmed! Check your email for order details and expected delivery date.",
-        "CLARIFY": "I can help with your order. Can you provide your order number?",
-        "ESCALATE": "We're reviewing your order issue. A specialist will reach out within 24 hours."
-    },
-    "PAYMENT": {
-        "AUTO_REPLY": "Your payment has been processed successfully. You should see the transaction reflected in your account within 1-2 business days.",
-        "CLARIFY": "I'd like to help with the payment issue. Can you describe what went wrong?",
-        "ESCALATE": "Our payments team is investigating this. You'll hear from us with a resolution within 24 hours."
-    },
-    "REFUND": {
-        "AUTO_REPLY": "We've initiated your refund! You should see the credit to your original payment method within 5-10 business days.",
-        "CLARIFY": "I can process your refund. Can you confirm the reason and order number?",
-        "ESCALATE": "Your refund request needs manual review. An agent will contact you within 24 hours with next steps."
-    },
-    "SHIPPING": {
-        "AUTO_REPLY": "Your package has been shipped! Click the link in your confirmation email to track your delivery in real-time.",
-        "CLARIFY": "I'd be happy to help. Can you provide your order or tracking number?",
-        "ESCALATE": "We're investigating your shipping issue. A specialist will contact you with an update within 24 hours."
-    },
-    "SUBSCRIPTION": {
-        "AUTO_REPLY": "Your subscription is active and current. You can manage your plan anytime in your account settings.",
-        "CLARIFY": "What would you like to do with your subscription?",
-        "ESCALATE": "Your subscription request needs review. A specialist will be in touch within 24 hours."
-    }
-}
-
-CATEGORY_OPTIONS = sorted(RESPONSE_TEMPLATES.keys())
 
 
 # ============================================================================
@@ -528,194 +474,14 @@ def save_admin_feedback(
     return interaction_row_to_dict(updated_row)
 
 
-def normalize_column_name(name: str) -> str:
-    """Convert raw CSV column names into stable snake_case keys."""
-    normalized = re.sub(r"[^a-z0-9]+", "_", str(name).strip().lower()).strip("_")
-    aliases = {
-        "cid": "customer_id",
-        "registered_email": "registered_email",
-        "registered_phone_number": "registered_phone_number",
-        "prime_subscription_flag": "prime_subscription_flag",
-        "damage_1_0": "damage_flag",
-        "applied_for_return_1_0": "applied_for_return",
-        "return_claim_accepted_1_0": "return_claim_accepted",
-        "eligible_refund_0_to_1": "eligible_refund_ratio",
-    }
-    return aliases.get(normalized, normalized)
-
-
-def clean_csv_value(value: Any) -> str:
-    """Normalize CSV values into clean strings."""
-    if value is None:
-        return ""
-    return str(value).strip()
-
-
-def to_bool_flag(value: Any) -> bool:
-    """Interpret common CSV boolean flags."""
-    return clean_csv_value(value).lower() in {"1", "true", "yes", "y"}
-
-
-def to_float_value(value: Any) -> float:
-    """Convert numeric CSV values to floats safely."""
-    try:
-        return float(clean_csv_value(value) or 0)
-    except ValueError:
-        return 0.0
-
-
-def parse_flexible_datetime(value: Any) -> Optional[datetime]:
-    """Parse dates used in the seeded CSV files."""
-    raw = clean_csv_value(value)
-    if not raw:
-        return None
-
-    for fmt in ("%d/%m/%y %H:%M", "%d/%m/%y", "%Y-%m-%d"):
-        try:
-            return datetime.strptime(raw, fmt)
-        except ValueError:
-            continue
-
-    return None
-
-
-def format_context_date(value: Any) -> str:
-    """Format a CSV date string into a more readable label."""
-    parsed = parse_flexible_datetime(value)
-    if parsed is None:
-        return clean_csv_value(value) or "n/a"
-    return parsed.strftime("%d %b %Y")
-
-
-def format_order_summary(order: dict, max_items: int = 3) -> str:
-    """Format an order's items into a compact human-readable summary."""
-    items = order.get("items", [])
-    if not items:
-        return clean_csv_value(order.get("order_summary", "")) or "No item summary available"
-
-    parts = [
-        f"{item.get('product_name', 'Item')} x{item.get('quantity', 0)}"
-        for item in items[:max_items]
-    ]
-    if len(items) > max_items:
-        parts.append(f"+{len(items) - max_items} more")
-    return ", ".join(parts)
-
-
-def parse_order_summary(raw_summary: str) -> list[dict]:
-    """Parse the nested order summary JSON into a stable list of items."""
-    if not raw_summary:
-        return []
-
-    try:
-        summary = json.loads(raw_summary)
-    except json.JSONDecodeError:
-        return []
-
-    items = []
-    for product_id, payload in summary.items():
-        items.append({
-            "product_id": product_id,
-            "product_name": clean_csv_value(payload.get("Prod Name")),
-            "quantity": int(payload.get("Prod Qty", 0) or 0),
-        })
-
-    return items
-
-
-def load_customer_records() -> dict[str, dict]:
-    """Load customer profiles from the local CSV."""
-    if not CUSTOMERS_DATA_PATH.exists():
-        return {}
-
-    customers = {}
-    with open(CUSTOMERS_DATA_PATH, newline="", encoding="utf-8") as handle:
-        reader = csv.DictReader(handle)
-        for row in reader:
-            normalized = {
-                normalize_column_name(key): clean_csv_value(value)
-                for key, value in row.items()
-            }
-
-            customer_id = normalized.get("customer_id", "")
-            if not customer_id:
-                continue
-
-            profile = {
-                **normalized,
-                "customer_id": customer_id,
-                "name": normalized.get("name", f"Customer {customer_id}"),
-                "prime_subscription_flag": to_bool_flag(normalized.get("prime_subscription_flag")),
-            }
-            customers[customer_id] = profile
-
-    return customers
-
-
-def load_order_records() -> dict[str, list[dict]]:
-    """Load orders grouped by customer from the local CSV."""
-    if not ORDERS_DATA_PATH.exists():
-        return {}
-
-    orders_by_customer: dict[str, list[dict]] = {}
-    with open(ORDERS_DATA_PATH, newline="", encoding="utf-8") as handle:
-        reader = csv.DictReader(handle)
-        for row in reader:
-            normalized = {
-                normalize_column_name(key): clean_csv_value(value)
-                for key, value in row.items()
-            }
-
-            customer_id = normalized.get("customer_id", "")
-            order_id = normalized.get("order_id", "")
-            if not customer_id or not order_id:
-                continue
-
-            order = {
-                **normalized,
-                "customer_id": customer_id,
-                "order_id": order_id,
-                "items": parse_order_summary(normalized.get("order_summary", "")),
-                "order_amount": to_float_value(normalized.get("order_amount")),
-                "expected_refund_amount": to_float_value(normalized.get("expected_refund_amount")),
-                "eligible_refund_ratio": to_float_value(normalized.get("eligible_refund_ratio")),
-                "damage_flag": to_bool_flag(normalized.get("damage_flag")),
-                "applied_for_return": to_bool_flag(normalized.get("applied_for_return")),
-                "return_claim_accepted": to_bool_flag(normalized.get("return_claim_accepted")),
-            }
-
-            orders_by_customer.setdefault(customer_id, []).append(order)
-
-    for customer_id, orders in orders_by_customer.items():
-        orders_by_customer[customer_id] = sorted(
-            orders,
-            key=lambda order: parse_flexible_datetime(order.get("order_date")) or datetime.min,
-            reverse=True,
-        )
-
-    return orders_by_customer
-
-
 def list_chat_users() -> list[dict]:
-    """Return selectable chat users from the customer CSV."""
-    customers = load_customer_records()
-    return [
-        {
-            "customer_id": customer_id,
-            "name": profile["name"],
-            "label": f"{customer_id} - {profile['name']}",
-        }
-        for customer_id, profile in sorted(customers.items(), key=lambda item: int(item[0]))
-    ]
+    """Return selectable chat users from the structured e-commerce dataset."""
+    return list_ecommerce_chat_users()
 
 
 def get_customer_scope(customer_id: str) -> tuple[dict, list[dict]]:
     """Return the selected customer's profile and only their own orders."""
-    customers = load_customer_records()
-    orders_by_customer = load_order_records()
-    profile = customers.get(str(customer_id), {})
-    orders = orders_by_customer.get(str(customer_id), [])
-    return profile, orders
+    return get_ecommerce_customer_scope(customer_id)
 
 
 def fetch_customer_chat_history(customer_id: str, limit: int = 100) -> list[dict]:
@@ -772,862 +538,20 @@ def fetch_latest_customer_interaction(customer_id: str) -> dict:
 
 def build_user_summary(profile: dict, orders: list[dict]) -> dict:
     """Create a compact summary for the selected user panel."""
-    recent_orders = []
-    for order in orders[:5]:
-        recent_orders.append({
-            "order_id": order["order_id"],
-            "order_status": order.get("order_status", ""),
-            "delivery_status": order.get("delivery_status", ""),
-            "order_date": order.get("order_date", ""),
-            "order_amount": order.get("order_amount", 0.0),
-            "order_currency": order.get("order_currency", ""),
-        })
-
-    return {
-        "customer_id": profile.get("customer_id", ""),
-        "name": profile.get("name", ""),
-        "account_status": profile.get("account_status", ""),
-        "registered_email": profile.get("registered_email", ""),
-        "registered_phone_number": profile.get("registered_phone_number", ""),
-        "subscription_plan_name": profile.get("subscription_plan_name", ""),
-        "prime_subscription_flag": bool(profile.get("prime_subscription_flag")),
-        "order_count": len(orders),
-        "recent_orders": recent_orders,
-    }
+    return build_ecommerce_user_summary(profile, orders)
 
 
 def fetch_user_chat_payload(customer_id: str, limit: int = 100) -> dict:
     """Return user summary plus chat history for the support chat UI."""
     profile, orders = get_customer_scope(customer_id)
     if not profile:
-        raise ValueError("Selected customer was not found in customers_data.csv")
+        raise ValueError("Selected customer was not found in ecommerce_data/ecommerce_customers.csv")
 
     history = fetch_customer_chat_history_for_user(customer_id, limit=limit)
     return {
         "user": build_user_summary(profile, orders),
         "history": history,
     }
-
-
-def extract_numeric_candidates(text: str) -> list[str]:
-    """Extract integer-like identifiers from a user message."""
-    return re.findall(r"\b(\d{1,8})\b", text or "")
-
-
-def extract_identifier_candidates(text: str, prefix: str) -> list[str]:
-    """Extract prefixed identifiers such as PAY..., DLV..., or refund IDs."""
-    pattern = rf"\b{re.escape(prefix.upper())}[A-Z0-9]+\b"
-    return re.findall(pattern, (text or "").upper())
-
-
-def parse_query_date_token(raw_value: str) -> Optional[datetime.date]:
-    """Parse a date token from user text, including partial day/month forms."""
-    raw = (raw_value or "").strip()
-    if not raw:
-        return None
-
-    for fmt in (
-        "%d/%m/%y",
-        "%d/%m/%Y",
-        "%m/%d/%y",
-        "%m/%d/%Y",
-        "%Y-%m-%d",
-        "%d-%m-%y",
-        "%d-%m-%Y",
-        "%m-%d-%y",
-        "%m-%d-%Y",
-        "%B %d %Y",
-        "%b %d %Y",
-        "%B %d, %Y",
-        "%b %d, %Y",
-        "%d %B %Y",
-        "%d %b %Y",
-    ):
-        try:
-            return datetime.strptime(raw, fmt).date()
-        except ValueError:
-            continue
-
-    if re.fullmatch(r"\d{1,2}[/-]\d{1,2}", raw):
-        separator = "/" if "/" in raw else "-"
-        day_text, month_text = raw.split(separator)
-        try:
-            return datetime(datetime.now().year, int(month_text), int(day_text)).date()
-        except ValueError:
-            return None
-
-    return None
-
-
-def classify_query_date_mention(text: str, start: int, end: int) -> str:
-    """Infer whether a mentioned date refers to order placement, delivery timing, or current time."""
-    lowered = (text or "").lower()
-    before = lowered[max(0, start - 40):start]
-    after = lowered[end:min(len(lowered), end + 40)]
-    nearby = f"{before} {after}"
-
-    if re.search(r"\b(today|today is|as of|current date|right now|currently|now)\b", nearby):
-        return "current_date"
-    if any(keyword in nearby for keyword in ("placed", "ordered", "purchased", "bought", "order date")):
-        return "order_date"
-    if any(keyword in nearby for keyword in (
-        "expected",
-        "supposed",
-        "delivery",
-        "arrive",
-        "arrival",
-        "come",
-        "receive",
-        "received",
-        "get it",
-        "eta",
-        "late",
-        "delay",
-        "delayed",
-    )):
-        return "delivery_date"
-    return "generic"
-
-
-def extract_query_date_mentions(text: str) -> list[dict]:
-    """Extract structured date mentions with light role classification."""
-    text = text or ""
-    patterns = [
-        r"\b\d{1,2}/\d{1,2}(?:/\d{2,4})?\b",
-        r"\b\d{1,2}-\d{1,2}(?:-\d{2,4})?\b",
-        r"\b\d{4}-\d{2}-\d{2}\b",
-        r"\b(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\s+\d{1,2},?\s+\d{4}\b",
-        r"\b\d{1,2}\s+(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\s+\d{4}\b",
-    ]
-
-    mentions: list[dict] = []
-    seen = set()
-    for pattern in patterns:
-        for match in re.finditer(pattern, text, flags=re.IGNORECASE):
-            raw = match.group(0).strip()
-            parsed = parse_query_date_token(raw)
-            if parsed is None:
-                continue
-
-            mention_kind = classify_query_date_mention(text, match.start(), match.end())
-            key = (raw.lower(), parsed.isoformat(), mention_kind)
-            if key in seen:
-                continue
-            seen.add(key)
-            mentions.append({
-                "raw": raw,
-                "date": parsed,
-                "kind": mention_kind,
-            })
-
-    return mentions
-
-
-def extract_query_dates(text: str) -> list[datetime.date]:
-    """Extract explicit dates mentioned in the user query."""
-    candidates: list[datetime.date] = []
-    seen = set()
-
-    for mention in extract_query_date_mentions(text):
-        if mention["kind"] == "current_date":
-            continue
-        parsed = mention["date"]
-        if parsed not in seen:
-            seen.add(parsed)
-            candidates.append(parsed)
-
-    return candidates
-
-
-def find_orders_by_dates(customer_orders: list[dict], query_dates: list[datetime.date]) -> list[dict]:
-    """Find orders whose order date matches any explicit date in the query."""
-    if not query_dates:
-        return []
-
-    matched_orders = []
-    date_set = set(query_dates)
-    for order in customer_orders:
-        order_dt = parse_flexible_datetime(order.get("order_date"))
-        if order_dt and order_dt.date() in date_set:
-            matched_orders.append(order)
-
-    return matched_orders
-
-
-def match_orders_from_date_mentions(customer_orders: list[dict], date_mentions: list[dict]) -> tuple[list[dict], str]:
-    """Match orders using order-date and delivery-date hints from the user's wording."""
-    if not customer_orders or not date_mentions:
-        return [], "no_date_mentions"
-
-    usable_mentions = [mention for mention in date_mentions if mention["kind"] != "current_date"]
-    if not usable_mentions:
-        return [], "current_date_only"
-
-    def matches_field(order: dict, field_name: str, target_dates: set[datetime.date]) -> bool:
-        field_dt = parse_flexible_datetime(order.get(field_name))
-        return bool(field_dt and field_dt.date() in target_dates)
-
-    order_dates = {mention["date"] for mention in usable_mentions if mention["kind"] == "order_date"}
-    delivery_dates = {mention["date"] for mention in usable_mentions if mention["kind"] == "delivery_date"}
-    generic_dates = {mention["date"] for mention in usable_mentions if mention["kind"] == "generic"}
-
-    if order_dates or delivery_dates:
-        candidates = list(customer_orders)
-        if order_dates:
-            candidates = [order for order in candidates if matches_field(order, "order_date", order_dates)]
-        if delivery_dates:
-            candidates = [
-                order
-                for order in candidates
-                if matches_field(order, "exp_delivery_date", delivery_dates)
-                or matches_field(order, "actual_delivery_date", delivery_dates)
-            ]
-        if candidates:
-            return candidates, "role_aware_date_match"
-
-    if generic_dates:
-        candidates = [
-            order
-            for order in customer_orders
-            if matches_field(order, "order_date", generic_dates)
-            or matches_field(order, "exp_delivery_date", generic_dates)
-            or matches_field(order, "actual_delivery_date", generic_dates)
-        ]
-        if candidates:
-            return candidates, "generic_date_match"
-
-    if order_dates:
-        candidates = [order for order in customer_orders if matches_field(order, "order_date", order_dates)]
-        if candidates:
-            return candidates, "order_date_match"
-
-    if delivery_dates:
-        candidates = [
-            order
-            for order in customer_orders
-            if matches_field(order, "exp_delivery_date", delivery_dates)
-            or matches_field(order, "actual_delivery_date", delivery_dates)
-        ]
-        if candidates:
-            return candidates, "delivery_date_match"
-
-    return [], "no_orders_for_requested_dates"
-
-
-def find_recent_resolved_order_reference(
-    query: str,
-    conversation_history: list[dict],
-    customer_orders: list[dict],
-) -> tuple[Optional[dict], str]:
-    """Reuse the latest resolved order when the user clearly refers back to it."""
-    lowered = (query or "").lower()
-    if not conversation_history or not customer_orders:
-        return None, "no_recent_order_context"
-
-    explicit_order_reference = bool(
-        re.search(r"order(?:\s*(?:id|number|#))?\s*[:#-]?\s*\d+", lowered)
-        or re.search(r"#\s*\d+", lowered)
-        or extract_identifier_candidates(query, "PAY")
-        or extract_identifier_candidates(query, "DLV")
-        or extract_identifier_candidates(query, "REF")
-        or extract_identifier_candidates(query, "RFD")
-        or extract_query_dates(query)
-    )
-    if explicit_order_reference:
-        return None, "query_has_new_reference"
-
-    if not re.search(r"\b(it|this|that|the order|my order|that order)\b", lowered):
-        return None, "no_follow_up_reference"
-
-    orders_by_id = {order["order_id"]: order for order in customer_orders}
-    for interaction in reversed(conversation_history):
-        resolved_order_id = clean_csv_value(interaction.get("resolved_order_id"))
-        if resolved_order_id and resolved_order_id in orders_by_id:
-            return orders_by_id[resolved_order_id], "reuse_recent_order_context"
-
-    return None, "no_recent_resolved_order"
-
-
-def build_order_lookup_entry(order: dict) -> dict:
-    """Create the order summary fields shown to the user during clarification."""
-    return {
-        "order_id": order.get("order_id", ""),
-        "order_date": order.get("order_date", ""),
-        "order_summary": format_order_summary(order),
-        "order_amount": order.get("order_amount", 0.0),
-        "order_currency": order.get("order_currency", ""),
-        "order_status": order.get("order_status", ""),
-        "payment_status": order.get("payment_status", ""),
-    }
-
-
-def select_relevant_order(
-    query: str,
-    customer_orders: list[dict],
-    pending_interaction: dict,
-) -> tuple[Optional[dict], str]:
-    """Resolve which order the user is referring to without crossing user scope."""
-    if not customer_orders:
-        return None, "no_orders"
-
-    lowered = (query or "").lower()
-    orders_by_id = {order["order_id"]: order for order in customer_orders}
-    orders_by_payment_id = {
-        clean_csv_value(order.get("payment_id")).upper(): order
-        for order in customer_orders
-        if clean_csv_value(order.get("payment_id"))
-    }
-    orders_by_delivery_id = {
-        clean_csv_value(order.get("delivery_id")).upper(): order
-        for order in customer_orders
-        if clean_csv_value(order.get("delivery_id"))
-    }
-    orders_by_refund_id = {
-        clean_csv_value(order.get("refund_id")).upper(): order
-        for order in customer_orders
-        if clean_csv_value(order.get("refund_id"))
-    }
-
-    explicit_patterns = [
-        r"order(?:\s*(?:id|number|#))?\s*[:#-]?\s*(\d+)",
-        r"#\s*(\d+)",
-    ]
-    for pattern in explicit_patterns:
-        match = re.search(pattern, lowered)
-        if match:
-            candidate = match.group(1)
-            if candidate in orders_by_id:
-                return orders_by_id[candidate], "explicit_order_id"
-
-    for payment_id in extract_identifier_candidates(query, "PAY"):
-        if payment_id in orders_by_payment_id:
-            return orders_by_payment_id[payment_id], "explicit_payment_id"
-
-    for delivery_id in extract_identifier_candidates(query, "DLV"):
-        if delivery_id in orders_by_delivery_id:
-            return orders_by_delivery_id[delivery_id], "explicit_delivery_id"
-
-    refund_candidates = extract_identifier_candidates(query, "REF") + extract_identifier_candidates(query, "RFD")
-    for refund_id in refund_candidates:
-        if refund_id in orders_by_refund_id:
-            return orders_by_refund_id[refund_id], "explicit_refund_id"
-
-    if pending_interaction.get("resolved_order_id"):
-        pending_order_id = pending_interaction["resolved_order_id"]
-        if pending_order_id in orders_by_id:
-            return orders_by_id[pending_order_id], "reuse_previous_order"
-
-    numeric_candidates = extract_numeric_candidates(lowered)
-    query_has_explicit_date = bool(extract_query_dates(query))
-    if len(customer_orders) > 1 and not query_has_explicit_date:
-        for candidate in numeric_candidates:
-            if candidate in orders_by_id:
-                return orders_by_id[candidate], "matched_numeric_id"
-
-    if any(keyword in lowered for keyword in ("latest order", "recent order", "last order", "my latest")):
-        return customer_orders[0], "latest_order_reference"
-
-    if len(customer_orders) == 1:
-        return customer_orders[0], "single_order_scope"
-
-    return None, "ambiguous_order_reference"
-
-
-def build_recent_order_options(customer_orders: list[dict], limit: int = 5) -> list[dict]:
-    """Return compact recent-order options for clarification prompts and JSON context."""
-    options = []
-    for order in customer_orders[:limit]:
-        entry = build_order_lookup_entry(order)
-        entry["delivery_status"] = order.get("delivery_status", "")
-        entry["expected_delivery_date"] = order.get("exp_delivery_date", "")
-        options.append(entry)
-    return options
-
-
-def build_context_json(
-    profile: dict,
-    orders: list[dict],
-    category: str,
-    selected_order: Optional[dict] = None,
-    clarification_needed: bool = False,
-    clarification_candidates: Optional[list[dict]] = None,
-) -> dict:
-    """Build the JSON context payload used for response generation and UI display."""
-    customer_json = {
-        "customer_id": profile.get("customer_id", ""),
-        "name": profile.get("name", ""),
-        "account_status": profile.get("account_status", ""),
-        "registered_email": profile.get("registered_email", ""),
-        "registered_phone_number": profile.get("registered_phone_number", ""),
-        "address": profile.get("address", ""),
-        "city": profile.get("city", ""),
-        "state": profile.get("state", ""),
-        "country": profile.get("country", ""),
-        "account_opening_date": profile.get("account_opening_date", ""),
-        "prime_subscription_flag": bool(profile.get("prime_subscription_flag")),
-        "subscription_plan_name": profile.get("subscription_plan_name", ""),
-        "last_subscribed_date": profile.get("last_subscribed_date", ""),
-    }
-
-    context = {
-        "intent_category": category,
-        "customer": customer_json,
-        "clarification_needed": clarification_needed,
-        "recent_orders": build_recent_order_options(orders),
-    }
-
-    if clarification_candidates:
-        context["clarification_candidates"] = clarification_candidates
-
-    if selected_order:
-        context["selected_order"] = {
-            "order_id": selected_order.get("order_id", ""),
-            "order_status": selected_order.get("order_status", ""),
-            "order_date": selected_order.get("order_date", ""),
-            "order_amount": selected_order.get("order_amount", 0.0),
-            "order_currency": selected_order.get("order_currency", ""),
-            "items": selected_order.get("items", []),
-            "payment": {
-                "payment_id": selected_order.get("payment_id", ""),
-                "payment_mode": selected_order.get("payment_mode", ""),
-                "payment_status": selected_order.get("payment_status", ""),
-            },
-            "delivery": {
-                "delivery_id": selected_order.get("delivery_id", ""),
-                "delivery_status": selected_order.get("delivery_status", ""),
-                "expected_delivery_date": selected_order.get("exp_delivery_date", ""),
-                "actual_delivery_date": selected_order.get("actual_delivery_date", ""),
-            },
-            "refund": {
-                "refund_id": selected_order.get("refund_id", ""),
-                "refund_status": selected_order.get("refund_status", ""),
-                "expected_refund_date": selected_order.get("expected_refund_date", ""),
-                "actual_refund_date": selected_order.get("actual_refund_date", ""),
-                "eligible_refund_ratio": selected_order.get("eligible_refund_ratio", 0.0),
-                "expected_refund_amount": selected_order.get("expected_refund_amount", 0.0),
-            },
-            "return_flags": {
-                "damage_flag": bool(selected_order.get("damage_flag")),
-                "applied_for_return": bool(selected_order.get("applied_for_return")),
-                "return_claim_accepted": bool(selected_order.get("return_claim_accepted")),
-            },
-        }
-
-    return context
-
-
-def build_clarification_prompt(
-    category: str,
-    orders: list[dict],
-    candidate_orders: Optional[list[dict]] = None,
-    query_dates: Optional[list[datetime.date]] = None,
-) -> str:
-    """Generate a customer-facing request for more context."""
-    recent_orders = [
-        build_order_lookup_entry(order)
-        for order in (candidate_orders if candidate_orders is not None else orders[:5])
-    ]
-    prompt_map = {
-        "ORDER": "I can help with your order, but I need to know which one you mean.",
-        "DELIVERY": "I can check the delivery details, but I need the specific order ID first.",
-        "SHIPPING": "I can look up the shipping status, but I need the relevant order ID.",
-        "REFUND": "I can review the refund information, but I need the order ID you want me to check.",
-        "PAYMENT": "I can inspect the payment details, but I need the related order ID.",
-        "INVOICE": "I can pull the invoice-relevant details, but I need the order ID or payment reference.",
-        "CANCEL": "I can look into cancellation options, but I need to know which order you mean.",
-    }
-    opener = prompt_map.get(category, "I can help, but I need a bit more detail first.")
-
-    if query_dates:
-        requested_dates = ", ".join(sorted({date.strftime("%d %b %Y") for date in query_dates}))
-        opener = f"{opener} I found that you referred to {requested_dates}."
-
-    if not recent_orders:
-        if query_dates:
-            return (
-                f"{opener} I could not find any orders on your account for that date. "
-                "Please share the exact order ID or another order date."
-            )
-        return f"{opener} I could not find any orders on your account yet."
-
-    bullet_lines = []
-    for order in recent_orders:
-        bullet_lines.append(
-            "\n".join([
-                f"- Order #{order['order_id']}",
-                f"  Date: {format_context_date(order['order_date'])}",
-                f"  Summary: {order['order_summary']}",
-                f"  Amount: {order['order_currency']} {float(order['order_amount'] or 0):.2f}",
-                f"  Status: {order['order_status']}",
-                f"  Payment: {order['payment_status']}",
-            ])
-        )
-
-    if query_dates:
-        return (
-            f"{opener}\n\n"
-            "I found these orders on your account for that date:\n"
-            + "\n\n".join(bullet_lines)
-            + "\n\nPlease choose the correct order ID from this list."
-        )
-
-    return (
-        f"{opener}\n\n"
-        "Here are your recent orders:\n"
-        + "\n\n".join(bullet_lines)
-        + "\n\nPlease let me know which order you are referring to."
-    )
-
-
-def looks_like_subscription_request(text: str) -> bool:
-    """Detect subscription-specific wording that should stay in account scope."""
-    lowered = (text or "").lower()
-    return any(keyword in lowered for keyword in ("subscription", "plan", "membership", "prime"))
-
-
-def detect_explicit_intent_from_query(text: str) -> Optional[str]:
-    """Prefer explicit user wording when the classifier misses a clear intent."""
-    lowered = (text or "").lower()
-
-    if looks_like_subscription_request(text):
-        return "SUBSCRIPTION"
-    if any(keyword in lowered for keyword in ("invoice", "receipt", "billing statement")):
-        return "INVOICE"
-    if any(keyword in lowered for keyword in ("refund", "refunded", "money back")):
-        return "REFUND"
-    if any(keyword in lowered for keyword in ("cancel", "cancellation", "cancelled", "canceled")):
-        return "CANCEL"
-    if any(keyword in lowered for keyword in ("payment", "transaction", "charged", "paynow", "bank transfer")):
-        return "PAYMENT"
-    if any(keyword in lowered for keyword in (
-        "delivery",
-        "shipping",
-        "shipped",
-        "track",
-        "tracking",
-        "where is my order",
-        "where's my order",
-        "havent received",
-        "haven't received",
-        "have not received",
-        "did not receive",
-        "didn't receive",
-        "not received yet",
-        "supposed to come",
-        "expected to come",
-        "when can i get",
-        "out for delivery",
-        "in transit",
-        "arrive",
-        "arrival",
-        "late delivery",
-        "delayed order",
-    )):
-        return "DELIVERY"
-    return None
-
-
-def query_requires_order_lookup(category: str, text: str) -> bool:
-    """Decide whether this query needs a specific order or payment reference."""
-    lowered = (text or "").lower()
-    explicit_reference = bool(
-        extract_numeric_candidates(text)
-        or extract_identifier_candidates(text, "PAY")
-        or extract_identifier_candidates(text, "DLV")
-        or extract_identifier_candidates(text, "REF")
-        or extract_identifier_candidates(text, "RFD")
-        or extract_query_dates(text)
-    )
-
-    if category in {"ORDER", "DELIVERY", "SHIPPING", "REFUND", "PAYMENT"}:
-        return True
-    if category == "CANCEL":
-        return not looks_like_subscription_request(text)
-    if category == "INVOICE":
-        return explicit_reference or any(keyword in lowered for keyword in ("order", "payment", "transaction", "invoice for"))
-    return False
-
-
-def build_relevant_context_slice(state: SupportAgentState) -> dict:
-    """Create the minimal context slice needed to answer the user's query."""
-    context = {
-        "customer": state.context_json.get("customer", {}),
-        "intent_category": state.predicted_label,
-        "route_decision": state.route_decision,
-        "query": state.raw_message,
-        "is_first_reply": len(state.conversation_history) == 0,
-        "current_date": datetime.now().strftime("%d %b %Y"),
-        "service_recovery": build_service_recovery_facts(state),
-    }
-
-    if state.context_json.get("clarification_candidates"):
-        context["clarification_candidates"] = state.context_json["clarification_candidates"]
-
-    selected_order = state.context_json.get("selected_order")
-    if selected_order:
-        category = state.predicted_label
-        if category in {"ORDER", "DELIVERY", "SHIPPING", "CANCEL"}:
-            context["selected_order"] = {
-                "order_id": selected_order.get("order_id", ""),
-                "order_status": selected_order.get("order_status", ""),
-                "order_date": selected_order.get("order_date", ""),
-                "order_amount": selected_order.get("order_amount", 0.0),
-                "order_currency": selected_order.get("order_currency", ""),
-                "items": selected_order.get("items", []),
-                "delivery": selected_order.get("delivery", {}),
-            }
-        elif category == "PAYMENT":
-            context["selected_order"] = {
-                "order_id": selected_order.get("order_id", ""),
-                "order_amount": selected_order.get("order_amount", 0.0),
-                "order_currency": selected_order.get("order_currency", ""),
-                "payment": selected_order.get("payment", {}),
-            }
-        elif category == "REFUND":
-            context["selected_order"] = {
-                "order_id": selected_order.get("order_id", ""),
-                "order_status": selected_order.get("order_status", ""),
-                "order_amount": selected_order.get("order_amount", 0.0),
-                "order_currency": selected_order.get("order_currency", ""),
-                "refund": selected_order.get("refund", {}),
-                "return_flags": selected_order.get("return_flags", {}),
-            }
-        elif category == "INVOICE":
-            context["selected_order"] = {
-                "order_id": selected_order.get("order_id", ""),
-                "order_amount": selected_order.get("order_amount", 0.0),
-                "order_currency": selected_order.get("order_currency", ""),
-                "payment": selected_order.get("payment", {}),
-            }
-
-    return context
-
-
-def build_delivery_timing_note(selected_order: dict) -> str:
-    """Summarize whether the selected order is on time or delayed."""
-    delivery = selected_order.get("delivery", {})
-    expected_delivery_raw = delivery.get("expected_delivery_date")
-    actual_delivery_raw = delivery.get("actual_delivery_date")
-    expected_delivery_dt = parse_flexible_datetime(expected_delivery_raw)
-    actual_delivery_dt = parse_flexible_datetime(actual_delivery_raw)
-    today = datetime.now().date()
-    today_label = today.strftime("%d %b %Y")
-    delivery_status = clean_csv_value(delivery.get("delivery_status"))
-
-    if actual_delivery_dt is not None:
-        return f"The latest delivery record shows it was delivered on {actual_delivery_dt.strftime('%d %b %Y')}."
-
-    if expected_delivery_dt is None:
-        return "I do not have a newer delivery estimate on file yet."
-
-    expected_label = expected_delivery_dt.strftime("%d %b %Y")
-    if expected_delivery_dt.date() < today and delivery_status.lower() != "delivered":
-        return (
-            f"This looks delayed because the expected delivery date was {expected_label}, "
-            f"and today is {today_label}."
-        )
-
-    if delivery_status.lower() == "out for delivery":
-        return f"It is currently out for delivery, with the latest expected arrival date listed as {expected_label}."
-
-    return f"The latest expected delivery date on file is {expected_label}."
-
-
-def build_service_recovery_facts(state: SupportAgentState) -> dict:
-    """Describe whether the latest delivery issue likely needs apology or escalation."""
-    query = (state.raw_message or state.translated_message or "").lower()
-    delivery_issue_reported = any(
-        phrase in query
-        for phrase in (
-            "late",
-            "delay",
-            "delayed",
-            "havent received",
-            "haven't received",
-            "have not received",
-            "not received",
-            "why is it late",
-            "when will i receive",
-            "when can i get",
-            "where is my order",
-            "where's my order",
-        )
-    )
-
-    def lookup_order_by_id(order_id: str) -> Optional[dict]:
-        order_id = clean_csv_value(order_id)
-        if not order_id:
-            return None
-        for order in state.customer_orders:
-            if clean_csv_value(order.get("order_id")) == order_id:
-                return order
-        return None
-
-    def order_is_overdue(order: Optional[dict]) -> bool:
-        if not order:
-            return False
-        delivery = order.get("delivery", order)
-        actual_delivery = parse_flexible_datetime(delivery.get("actual_delivery_date"))
-        if actual_delivery is not None:
-            return False
-
-        delivery_status = clean_csv_value(delivery.get("delivery_status", order.get("delivery_status", ""))).lower()
-        if delivery_status == "delivered":
-            return False
-
-        expected_delivery = parse_flexible_datetime(delivery.get("expected_delivery_date", order.get("expected_delivery_date", order.get("exp_delivery_date", ""))))
-        return bool(expected_delivery and expected_delivery.date() < datetime.now().date())
-
-    selected_order = state.context_json.get("selected_order", {})
-    selected_order_live = lookup_order_by_id(selected_order.get("order_id")) if selected_order else None
-    selected_order_overdue = order_is_overdue(selected_order_live or selected_order)
-
-    clarification_candidates = state.context_json.get("clarification_candidates", [])
-    overdue_candidate_order_ids = []
-    for candidate in clarification_candidates:
-        candidate_live = lookup_order_by_id(candidate.get("order_id"))
-        if order_is_overdue(candidate_live or candidate):
-            overdue_candidate_order_ids.append(clean_csv_value(candidate.get("order_id")))
-
-    escalation_recommended = bool(
-        delivery_issue_reported and (
-            selected_order_overdue
-            or (state.needs_more_context and overdue_candidate_order_ids)
-            or (state.needs_more_context and state.predicted_label in {"ORDER", "DELIVERY", "SHIPPING"})
-        )
-    )
-
-    return {
-        "delivery_issue_reported": delivery_issue_reported,
-        "selected_order_overdue": selected_order_overdue,
-        "overdue_candidate_order_ids": overdue_candidate_order_ids,
-        "escalation_recommended": escalation_recommended,
-        "known_root_cause_available": False,
-        "recommended_action": (
-            "Apologize for the delay and explain that the issue will be escalated to customer support/logistics for a transporter update."
-            if escalation_recommended
-            else ""
-        ),
-    }
-
-
-def build_policy_response_blueprint(state: SupportAgentState) -> str:
-    """Create a policy-safe response blueprint from structured context."""
-    is_first_reply = len(state.conversation_history) == 0
-    intro = f"Hello {state.customer_name}! I can understand your concern. " if is_first_reply else ""
-    customer = state.context_json.get("customer", {})
-    selected_order = state.context_json.get("selected_order", {})
-    category = state.predicted_label
-    is_prime = bool(customer.get("prime_subscription_flag"))
-
-    if state.needs_more_context:
-        return f"{intro}{state.clarification_prompt}".strip()
-
-    if category == "INVOICE":
-        if selected_order:
-            return (
-                f"{intro}I checked the invoice-related details for order #{selected_order.get('order_id', 'n/a')}. "
-                f"You can access the invoice any time via My Profile -> Past Orders. "
-                f"The payment status currently shows {selected_order.get('payment', {}).get('payment_status', 'n/a')}."
-            ).strip()
-        return (
-            f"{intro}You can access your invoice via My Profile -> Past Orders."
-        ).strip()
-
-    if category == "SUBSCRIPTION":
-        plan_name = customer.get("subscription_plan_name", "n/a")
-        prime_state = "active" if is_prime else "not active"
-        return (
-            f"{intro}Your current subscription plan is {plan_name}, and Prime access is {prime_state}. "
-            f"If you'd like, I can help with renewal, upgrade, or cancellation guidance."
-        ).strip()
-
-    if category == "ACCOUNT":
-        return (
-            f"{intro}Your account is currently {customer.get('account_status', 'unknown')} and is registered to "
-            f"{customer.get('registered_email', 'the email on file')}. "
-            "Please tell me whether you need help with login, password reset, or account verification."
-        ).strip()
-
-    if category in ORDER_RELATED_CATEGORIES and not selected_order:
-        return (
-            f"{intro}I need the exact order reference before I can answer safely. "
-            "Please share the order ID or payment ID for the order you mean."
-        ).strip()
-
-    order_id = selected_order.get("order_id", "")
-    order_status = clean_csv_value(selected_order.get("order_status", "unknown"))
-    order_summary = format_order_summary(selected_order) if selected_order else ""
-    delivery = selected_order.get("delivery", {})
-    payment = selected_order.get("payment", {})
-    refund = selected_order.get("refund", {})
-    delivery_status = clean_csv_value(delivery.get("delivery_status", "unknown"))
-    shipped_or_beyond = order_status.lower() in {"shipped", "out for delivery", "delivered", "return requested", "returned", "return rejected"} or delivery_status.lower() in {"in transit", "out for delivery", "delivered"}
-    delivery_timing_note = build_delivery_timing_note(selected_order) if selected_order else ""
-
-    if category in {"ORDER", "DELIVERY", "SHIPPING"}:
-        priority_note = ""
-        if not is_prime:
-            priority_note = (
-                " Prime orders are prioritized for fast delivery, and this account is not currently subscribed to Prime, "
-                "so fast delivery is not available for this order."
-            )
-        return (
-            f"{intro}I checked order #{order_id}. The order status is {order_status} and the delivery status is {delivery_status}. "
-            f"{delivery_timing_note} "
-            f"This order contains {order_summary}.{priority_note}"
-        ).strip()
-
-    if category == "PAYMENT":
-        return (
-            f"{intro}I checked the payment details for order #{order_id}. "
-            f"Payment {payment.get('payment_id', 'n/a')} was made via {payment.get('payment_mode', 'n/a')} and is currently {payment.get('payment_status', 'n/a')}. "
-            f"The order total is {selected_order.get('order_currency', '')} {float(selected_order.get('order_amount', 0) or 0):.2f}."
-        ).strip()
-
-    if category == "REFUND":
-        refund_status = clean_csv_value(refund.get("refund_status")) or "not started"
-        refund_date = format_context_date(refund.get("expected_refund_date"))
-        refund_amount = float(refund.get("expected_refund_amount", 0) or 0)
-        status_note = ""
-        if refund_status == "not started" and delivery_status.lower() != "delivered":
-            status_note = f" The latest delivery update still shows {delivery_status.lower()}, so a refund has not started yet."
-        return (
-            f"{intro}I checked the refund details for order #{order_id}. "
-            f"The refund status is {refund_status}, and the expected refund amount is "
-            f"{selected_order.get('order_currency', '')} {refund_amount:.2f}. "
-            f"The expected refund date on file is {refund_date}.{status_note}"
-        ).strip()
-
-    if category == "CANCEL":
-        if shipped_or_beyond:
-            prime_note = ""
-            if not is_prime:
-                prime_note = " This account is not subscribed to Prime, so Prime fast-delivery benefits do not apply."
-            return (
-                f"{intro}I checked order #{order_id}. It has already reached the {order_status} stage, so it can no longer be cancelled.{prime_note} "
-                "Once you receive the item, you can apply for return if needed."
-            ).strip()
-        if not is_prime:
-            return (
-                f"{intro}I checked order #{order_id}. This account is not subscribed to Prime, so Prime fast-delivery benefits do not apply, "
-                "and the order is not eligible for cancellation or return immediately after placing. "
-                "If you receive the item and still need help, you can check whether a return can be requested after delivery."
-            ).strip()
-        return (
-            f"{intro}I checked order #{order_id}, which is currently {order_status}. "
-            "If it moves into shipping, it can no longer be cancelled. "
-            "If it gets delivered and you still need help, you can apply for return after receiving it."
-        ).strip()
-
-    if category == "CONTACT":
-        return (
-            f"{intro}You can reach our support team at support@company.com or call 1-800-SUPPORT during business hours."
-        ).strip()
-
-    return (
-        f"{intro}I have reviewed the details available for your account and can help once you tell me a bit more about what you need."
-    ).strip()
 
 
 def polish_response_with_llm(state: SupportAgentState, relevant_context: dict, blueprint: str) -> str:
@@ -1674,181 +598,6 @@ def polish_response_with_llm(state: SupportAgentState, relevant_context: dict, b
         temperature=0.2,
     )
     return response.choices[0].message.content.strip()
-
-
-def enforce_response_policies(state: SupportAgentState, draft: str, blueprint: str) -> str:
-    """Ensure the final response respects non-negotiable policy rules."""
-    response = (draft or "").strip()
-    if not response:
-        response = blueprint
-
-    response = re.sub(r"```.*?```", "", response, flags=re.DOTALL).strip()
-    if response.startswith("{") or response.startswith("[") or (
-        "{" in response and "}" in response and re.search(r'"\w+"\s*:', response)
-    ):
-        response = blueprint
-
-    response = re.sub(
-        rf"(Hello\s+{re.escape(state.customer_name)}!\s*)+",
-        f"Hello {state.customer_name}! ",
-        response,
-        flags=re.IGNORECASE,
-    )
-    response = re.sub(
-        r"(I can understand your concern\.\s*){2,}",
-        "I can understand your concern. ",
-        response,
-        flags=re.IGNORECASE,
-    )
-    response = re.sub(r"\s+", " ", response).strip()
-
-    expected_intro = f"Hello {state.customer_name}! I can understand your concern."
-    if len(state.conversation_history) == 0 and not response.startswith(expected_intro):
-        bare_greeting = f"Hello {state.customer_name}!"
-        if response.startswith(bare_greeting):
-            response = expected_intro + " " + response[len(bare_greeting):].lstrip()
-        else:
-            response = f"{expected_intro} " + response.lstrip()
-
-    if state.predicted_label == "INVOICE" and "My Profile -> Past Orders" not in response:
-        response = response.rstrip() + " You can access the invoice via My Profile -> Past Orders."
-
-    selected_order = state.context_json.get("selected_order", {})
-    customer = state.context_json.get("customer", {})
-    is_prime = bool(customer.get("prime_subscription_flag"))
-    order_status = clean_csv_value(selected_order.get("order_status", ""))
-    delivery_status = clean_csv_value(selected_order.get("delivery", {}).get("delivery_status", ""))
-    shipped_or_beyond = order_status.lower() in {"shipped", "out for delivery", "delivered", "return requested", "returned", "return rejected"} or delivery_status.lower() in {"in transit", "out for delivery", "delivered"}
-    if state.needs_more_context:
-        lowered = response.lower()
-        candidate_ids = [
-            clean_csv_value(item.get("order_id"))
-            for item in state.context_json.get("clarification_candidates", [])
-            if clean_csv_value(item.get("order_id"))
-        ]
-        asks_for_identifier = any(
-            phrase in lowered
-            for phrase in (
-                "order id",
-                "payment id",
-                "which order",
-                "choose",
-                "select",
-                "share the order",
-                "tell me which order",
-            )
-        )
-        if candidate_ids and not any(
-            f"#{order_id}".lower() in lowered or f"order {order_id}".lower() in lowered
-            for order_id in candidate_ids
-        ):
-            response = blueprint
-        elif not asks_for_identifier:
-            response = blueprint
-    elif selected_order:
-        order_id = clean_csv_value(selected_order.get("order_id"))
-        if order_id and order_id not in response and f"#{order_id}" not in response:
-            response = blueprint
-
-    if state.predicted_label == "CANCEL":
-        if shipped_or_beyond and "can no longer be cancelled" not in response.lower():
-            response = blueprint
-        elif not is_prime:
-            response = blueprint
-    if state.predicted_label in {"ORDER", "DELIVERY", "SHIPPING"}:
-        lowered = response.lower()
-        expected_delivery_label = format_context_date(selected_order.get("delivery", {}).get("expected_delivery_date", "")).lower() if selected_order else ""
-        delivery_note = build_delivery_timing_note(selected_order) if selected_order else ""
-        if selected_order and "delayed because" in delivery_note.lower():
-            if not any(
-                token in lowered
-                for token in ("delay", "delayed", "late", "expected delivery", expected_delivery_label)
-                if token
-            ):
-                response = blueprint
-        elif delivery_status and delivery_status.lower() not in lowered and "delivery status" not in lowered:
-            response = blueprint
-    if state.predicted_label in {"ORDER", "DELIVERY", "SHIPPING"} and not is_prime:
-        if "Prime" not in response and "fast delivery" not in response.lower():
-            response = blueprint
-
-    return response
-
-def generate_contextual_response(state: SupportAgentState) -> Optional[str]:
-    """Create a grounded response using selected customer and order context."""
-    profile = state.customer_profile
-    order = state.context_json.get("selected_order", {})
-    category = state.predicted_label
-
-    if state.needs_more_context:
-        return state.clarification_prompt
-
-    if category in ORDER_RELATED_CATEGORIES and not order:
-        return (
-            f"I checked the account for {state.customer_name}, but I could not find any matching orders yet. "
-            f"If you think there should be one, please share the order ID or confirm that you're chatting as the right customer."
-        )
-
-    if category == "ACCOUNT":
-        return (
-            f"I've pulled up your account, {state.customer_name}. Your account is currently {profile.get('account_status', 'unknown')} "
-            f"and is registered to {profile.get('registered_email', 'your email on file')}. "
-            f"If you're having an access issue, please tell me whether this is about login, password reset, or account verification."
-        )
-
-    if category == "SUBSCRIPTION":
-        prime_text = "active" if profile.get("prime_subscription_flag") else "not active"
-        return (
-            f"Your subscription profile shows plan `{profile.get('subscription_plan_name', 'n/a')}` and prime access is {prime_text}. "
-            f"The last subscription activity on file is {format_context_date(profile.get('last_subscribed_date'))}. "
-            f"If you want to upgrade, cancel, or renew, tell me which action you want to take."
-        )
-
-    if category in ORDER_RELATED_CATEGORIES and order:
-        order_id = order.get("order_id", "n/a")
-        order_status = order.get("order_status", "unknown")
-        delivery_status = order.get("delivery", {}).get("delivery_status", "unknown")
-        payment_status = order.get("payment", {}).get("payment_status", "unknown")
-        expected_delivery = order.get("delivery", {}).get("expected_delivery_date", "")
-        refund_status = order.get("refund", {}).get("refund_status", "")
-
-        if category in {"ORDER", "DELIVERY", "SHIPPING"}:
-            return (
-                f"Order #{order_id} is currently `{order_status}` and the delivery status is `{delivery_status}`. "
-                f"The expected delivery date on file is {format_context_date(expected_delivery)}. "
-                f"If you need help with a delay or change, I can use this order as the active reference."
-            )
-
-        if category == "PAYMENT":
-            return (
-                f"For order #{order_id}, payment `{order.get('payment', {}).get('payment_id', 'n/a')}` was made via "
-                f"{order.get('payment', {}).get('payment_mode', 'n/a')} and is currently `{payment_status}`. "
-                f"The order total is {order.get('order_currency', '')} {order.get('order_amount', 0.0):.2f}."
-            )
-
-        if category == "INVOICE":
-            return (
-                f"Here are the invoice-relevant details for order #{order_id}: total {order.get('order_currency', '')} "
-                f"{order.get('order_amount', 0.0):.2f}, payment `{order.get('payment', {}).get('payment_id', 'n/a')}`, "
-                f"status `{payment_status}`."
-            )
-
-        if category == "REFUND":
-            return (
-                f"For order #{order_id}, refund status is `{refund_status or 'not started'}`. "
-                f"The expected refund amount is {order.get('order_currency', '')} {order.get('refund', {}).get('expected_refund_amount', 0.0):.2f} "
-                f"with expected refund date {format_context_date(order.get('refund', {}).get('expected_refund_date'))}."
-            )
-
-        if category == "CANCEL":
-            return (
-                f"Order #{order_id} is currently `{order_status}`. "
-                f"If the order has not been delivered yet, cancellation may still be possible; otherwise we may need to process a return instead. "
-                f"I can continue using this order if you want to cancel it."
-            )
-
-    return None
-
 
 # ============================================================================
 # LOAD BITEXT DATASET
@@ -1956,9 +705,6 @@ def preprocess_text(text):
     text = re.sub(r'[^a-z0-9\s]', ' ', text)  # Keep only alphanumeric
     text = re.sub(r'\s+', ' ', text).strip()  # Normalize whitespace
     return text
-
-CONFIDENCE_THRESHOLD = 0.70  # Threshold for high/low confidence responses
-
 
 # ============================================================================
 # TRAINING PIPELINE NODES
@@ -2208,7 +954,7 @@ def load_customer_scope_node(state: SupportAgentState) -> SupportAgentState:
 
     profile, orders = get_customer_scope(state.customer_id)
     if not profile:
-        raise ValueError("Selected customer was not found in customers_data.csv")
+        raise ValueError("Selected customer was not found in ecommerce_data/ecommerce_customers.csv")
 
     state.customer_profile = profile
     state.customer_name = profile.get("name", f"Customer {state.customer_id}")
@@ -2350,25 +1096,11 @@ def prepare_contextual_query_node(state: SupportAgentState) -> SupportAgentState
     """Augment short clarification follow-ups with prior pending context."""
     print("[ContextPrepNode] Preparing customer-scoped inference text...")
 
-    state.inference_message = state.translated_message
-    prep_reason = "direct_message"
-
-    if state.pending_interaction:
-        short_message = len(state.translated_message.split()) <= 10
-        matched_order, _ = select_relevant_order(
-            state.translated_message,
-            state.customer_orders,
-            state.pending_interaction,
-        )
-        clarification_words = re.search(
-            r"\b(it'?s|this one|that one|the latest|latest order|recent order|order)\b",
-            state.translated_message.lower(),
-        )
-        likely_follow_up = short_message and (matched_order is not None or clarification_words or extract_numeric_candidates(state.translated_message))
-        if likely_follow_up:
-            pending_issue = state.pending_interaction.get("raw_message", "")
-            state.inference_message = f"{pending_issue} Follow-up details: {state.translated_message}".strip()
-            prep_reason = "pending_clarification_follow_up"
+    state.inference_message, prep_reason = prepare_contextual_inference_message(
+        state.translated_message,
+        state.customer_orders,
+        state.pending_interaction,
+    )
 
     state.messages.append(f"[context_prep] Inference text prepared via {prep_reason}")
     add_trace_log(
@@ -2465,168 +1197,38 @@ def resolve_context_node(state: SupportAgentState) -> SupportAgentState:
     """Resolve user-scoped business context needed to answer the query."""
     print("[ContextResolveNode] Resolving customer and order context...")
     translated_query = state.translated_message or state.raw_message
+    original_label = state.predicted_label
+    resolved = resolve_customer_context(
+        customer_id=state.customer_id,
+        translated_query=translated_query,
+        predicted_label=state.predicted_label,
+        customer_profile=state.customer_profile,
+        customer_orders=state.customer_orders,
+        conversation_history=state.conversation_history,
+        pending_interaction=state.pending_interaction,
+    )
 
-    explicit_intent = detect_explicit_intent_from_query(translated_query)
-    if explicit_intent and explicit_intent != state.predicted_label:
-        original_label = state.predicted_label
-        state.predicted_label = explicit_intent
+    state.predicted_label = resolved["predicted_label"]
+    state.context_json = resolved["context_json"]
+    state.resolved_order_id = resolved["resolved_order_id"]
+    state.needs_more_context = resolved["needs_more_context"]
+    state.clarification_prompt = resolved["clarification_prompt"]
+    resolution_reason = resolved["resolution_reason"]
+    date_mentions = resolved["date_mentions"]
+    query_dates = resolved["query_dates"]
+    clarification_candidates = resolved["clarification_candidates"]
+    requires_order_lookup = resolved["requires_order_lookup"]
+
+    if state.predicted_label != original_label:
         add_trace_log(
             state,
             "context_resolve",
-            f"Adjusted intent from {original_label} to {explicit_intent} based on explicit user wording.",
-            {
-                "original_label": original_label,
-                "adjusted_label": explicit_intent,
-                "trigger_query": translated_query,
-            }
-        )
-
-    if state.predicted_label == "CANCEL" and looks_like_subscription_request(translated_query):
-        original_label = state.predicted_label
-        state.predicted_label = "SUBSCRIPTION"
-        add_trace_log(
-            state,
-            "context_resolve",
-            "Adjusted intent from CANCEL to SUBSCRIPTION based on subscription wording.",
+            f"Adjusted intent from {original_label} to {state.predicted_label} based on structured query analysis.",
             {
                 "original_label": original_label,
                 "adjusted_label": state.predicted_label,
+                "trigger_query": translated_query,
             }
-        )
-
-    if (
-        state.pending_interaction
-        and state.pending_interaction.get("needs_more_context")
-        and state.pending_interaction.get("predicted_label") in ORDER_RELATED_CATEGORIES
-    ):
-        short_message = len(translated_query.split()) <= 12
-        matched_order, _ = select_relevant_order(
-            translated_query,
-            state.customer_orders,
-            state.pending_interaction,
-        )
-        clarification_words = re.search(
-            r"\b(it'?s|this one|that one|the latest|latest order|recent order|order)\b",
-            translated_query.lower(),
-        )
-        if short_message and (matched_order is not None or clarification_words or extract_numeric_candidates(translated_query)):
-            original_label = state.predicted_label
-            state.predicted_label = state.pending_interaction.get("predicted_label", state.predicted_label)
-            if state.predicted_label != original_label:
-                add_trace_log(
-                    state,
-                    "context_resolve",
-                    f"Reused pending intent `{state.predicted_label}` for follow-up details.",
-                    {
-                        "original_label": original_label,
-                        "reused_label": state.predicted_label,
-                    }
-                )
-
-    state.needs_more_context = False
-    state.clarification_prompt = ""
-    state.resolved_order_id = ""
-    state.context_json = {}
-
-    date_mentions = extract_query_date_mentions(translated_query)
-    query_dates = extract_query_dates(translated_query)
-    requires_order_lookup = query_requires_order_lookup(state.predicted_label, translated_query)
-    clarification_candidates: list[dict] = []
-    selected_order = None
-    resolution_reason = "customer_profile_only"
-    if state.predicted_label in ORDER_RELATED_CATEGORIES and requires_order_lookup:
-        selected_order, resolution_reason = select_relevant_order(
-            translated_query,
-            state.customer_orders,
-            state.pending_interaction,
-        )
-        if not state.customer_orders:
-            state.context_json = build_context_json(
-                state.customer_profile,
-                state.customer_orders,
-                state.predicted_label,
-                None,
-                clarification_needed=False,
-            )
-            resolution_reason = "no_orders_on_account"
-        elif selected_order is None and query_dates:
-            matched_orders, date_match_reason = match_orders_from_date_mentions(state.customer_orders, date_mentions)
-            if len(matched_orders) == 1:
-                selected_order = matched_orders[0]
-                resolution_reason = f"single_order_match_from_{date_match_reason}"
-            else:
-                state.needs_more_context = True
-                clarification_candidates = build_recent_order_options(
-                    matched_orders,
-                    limit=max(1, min(len(matched_orders), 10)),
-                )
-                state.clarification_prompt = build_clarification_prompt(
-                    state.predicted_label,
-                    state.customer_orders,
-                    candidate_orders=matched_orders,
-                    query_dates=query_dates,
-                )
-                state.context_json = build_context_json(
-                    state.customer_profile,
-                    state.customer_orders,
-                    state.predicted_label,
-                    None,
-                    clarification_needed=True,
-                    clarification_candidates=clarification_candidates,
-                )
-                resolution_reason = (
-                    f"multiple_orders_for_{date_match_reason}"
-                    if matched_orders
-                    else "no_orders_for_requested_dates"
-                )
-        elif selected_order is None:
-            selected_order, resolution_reason = find_recent_resolved_order_reference(
-                translated_query,
-                state.conversation_history,
-                state.customer_orders,
-            )
-        if state.customer_orders and selected_order is None and not state.needs_more_context:
-            state.needs_more_context = True
-            clarification_candidates = build_recent_order_options(state.customer_orders)
-            state.clarification_prompt = build_clarification_prompt(
-                state.predicted_label,
-                state.customer_orders,
-            )
-            state.context_json = build_context_json(
-                state.customer_profile,
-                state.customer_orders,
-                state.predicted_label,
-                None,
-                clarification_needed=True,
-                clarification_candidates=clarification_candidates,
-            )
-            resolution_reason = "missing_specific_order_reference"
-        else:
-            if selected_order is not None:
-                state.resolved_order_id = selected_order["order_id"]
-                state.context_json = build_context_json(
-                    state.customer_profile,
-                    state.customer_orders,
-                    state.predicted_label,
-                    selected_order,
-                    clarification_needed=False,
-                )
-    elif state.predicted_label in ORDER_RELATED_CATEGORIES:
-        resolution_reason = "order_lookup_not_required"
-        state.context_json = build_context_json(
-            state.customer_profile,
-            state.customer_orders,
-            state.predicted_label,
-            None,
-            clarification_needed=False,
-        )
-    else:
-        state.context_json = build_context_json(
-            state.customer_profile,
-            state.customer_orders,
-            state.predicted_label,
-            None,
-            clarification_needed=False,
         )
 
     state.messages.append(f"[context_resolve] Context reason: {resolution_reason}")
@@ -2701,8 +1303,23 @@ def draft_response_node(state: SupportAgentState) -> SupportAgentState:
     print(f"[DraftResponseNode] Drafting response...")
 
     state.active_skill = "draft_response"
-    relevant_context = build_relevant_context_slice(state)
-    blueprint = build_policy_response_blueprint(state)
+    relevant_context = build_relevant_context_slice(
+        raw_message=state.raw_message,
+        predicted_label=state.predicted_label,
+        route_decision=state.route_decision,
+        context_json=state.context_json,
+        conversation_history=state.conversation_history,
+        customer_orders=state.customer_orders,
+    )
+    blueprint = build_policy_response_blueprint(
+        customer_name=state.customer_name,
+        conversation_history=state.conversation_history,
+        raw_message=state.raw_message,
+        predicted_label=state.predicted_label,
+        context_json=state.context_json,
+        needs_more_context=state.needs_more_context,
+        clarification_prompt=state.clarification_prompt,
+    )
     llm_error = ""
 
     if HAS_LLM and llm_client is not None:
@@ -2728,7 +1345,16 @@ def draft_response_node(state: SupportAgentState) -> SupportAgentState:
             "Generated the reply directly from the scoped policy blueprint because no LLM was available."
         )
 
-    state.response_final = enforce_response_policies(state, drafted_response, blueprint)
+    state.response_final = enforce_response_policies(
+        customer_name=state.customer_name,
+        conversation_history=state.conversation_history,
+        predicted_label=state.predicted_label,
+        raw_message=state.raw_message,
+        context_json=state.context_json,
+        needs_more_context=state.needs_more_context,
+        blueprint=blueprint,
+        drafted_response=drafted_response,
+    )
     state.response_generation = {
         "source": response_source,
         "active_skill": state.active_skill,
@@ -2854,22 +1480,6 @@ def train_pipeline():
     print("="*70 + "\n")
     
     return state
-
-def predict_with_confidence(query, model, vectorizer):
-    processed = preprocess_text(query)
-    vec = vectorizer.transform([processed])
-    pred = model.predict(vec)[0]
-    probs = model.predict_proba(vec)[0]
-    conf = float(np.max(probs))
-    print(f"→ {pred} ({conf:.0%})")
-    return pred, conf, dict(zip(model.classes_, probs))
-
-def generate_response(predicted_class, confidence):
-    level = "high" if confidence >= CONFIDENCE_THRESHOLD else "low"
-    resp = RESPONSE_TEMPLATES.get(predicted_class, {}).get(level, "Thank you for contacting support.")
-    if confidence < CONFIDENCE_THRESHOLD:
-        resp += f"\n\n⚠️ Low confidence ({confidence:.0%})"
-    return resp
 
 def classify_query(query, customer_id: str):
     """Full serving pipeline with all nodes executed for one selected customer."""
@@ -3264,7 +1874,7 @@ def render_support_ui() -> str:
         <div class="topbar">
             <div class="hero">
                 <h1>Customer Support Chat</h1>
-                <p>Chat as one selected user at a time. Every reply is restricted to that customer's account and order data from the local CSV files, and vague questions trigger a request for the missing details.</p>
+                <p>Chat as one selected user at a time. Every reply is restricted to that customer's account and structured e-commerce order data, and the agent now grounds delivery, refund, return, seller, and transporter answers from the `ecommerce_data/` datasets.</p>
                 <div class="hero-note">Current context is limited to the selected customer only.</div>
             </div>
             <div class="top-actions">
