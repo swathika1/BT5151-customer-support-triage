@@ -1,0 +1,27 @@
+transporter id,name,website,email,country
+1,SwiftShip India,https://www.swiftship-indi.com,support@swiftship-indi.com,India
+2,RapidRoute India,https://www.rapidroute-indi.com,support@rapidroute-indi.com,India
+3,ParcelWing India,https://www.parcelwing-indi.com,support@parcelwing-indi.com,India
+4,BlueExpress India,https://www.blueexpress-indi.com,support@blueexpress-indi.com,India
+5,SwiftShip Singapore,https://www.swiftship-sing.com,support@swiftship-sing.com,Singapore
+6,RapidRoute Singapore,https://www.rapidroute-sing.com,support@rapidroute-sing.com,Singapore
+7,ParcelWing Singapore,https://www.parcelwing-sing.com,support@parcelwing-sing.com,Singapore
+8,BlueExpress Singapore,https://www.blueexpress-sing.com,support@blueexpress-sing.com,Singapore
+9,SwiftShip Malaysia,https://www.swiftship-mala.com,support@swiftship-mala.com,Malaysia
+10,RapidRoute Malaysia,https://www.rapidroute-mala.com,support@rapidroute-mala.com,Malaysia
+11,ParcelWing Malaysia,https://www.parcelwing-mala.com,support@parcelwing-mala.com,Malaysia
+12,BlueExpress Malaysia,https://www.blueexpress-mala.com,support@blueexpress-mala.com,Malaysia
+13,SwiftShip United,https://www.swiftship-unit.com,support@swiftship-unit.com,United Arab Emirates
+14,RapidRoute United,https://www.rapidroute-unit.com,support@rapidroute-unit.com,United Arab Emirates
+15,ParcelWing United,https://www.parcelwing-unit.com,support@parcelwing-unit.com,United Arab Emirates
+16,BlueExpress United,https://www.blueexpress-unit.com,support@blueexpress-unit.com,United Arab Emirates
+17,SwiftShip United,https://www.swiftship-unit.com,support@swiftship-unit.com,United Kingdom
+18,RapidRoute United,https://www.rapidroute-unit.com,support@rapidroute-unit.com,United Kingdom
+19,ParcelWing United,https://www.parcelwing-unit.com,support@parcelwing-unit.com,United Kingdom
+20,BlueExpress United,https://www.blueexpress-unit.com,support@blueexpress-unit.com,United Kingdom
+21,SwiftShip Germany,https://www.swiftship-germ.com,support@swiftship-germ.com,Germany
+22,RapidRoute Germany,https://www.rapidroute-germ.com,support@rapidroute-germ.com,Germany
+23,ParcelWing Germany,https://www.parcelwing-germ.com,support@parcelwing-germ.com,Germany
+24,SwiftShip France,https://www.swiftship-fran.com,support@swiftship-fran.com,France
+25,RapidRoute France,https://www.rapidroute-fran.com,support@rapidroute-fran.com,France
+26,ParcelWing France,https://www.parcelwing-fran.com,support@parcelwing-fran.com,France

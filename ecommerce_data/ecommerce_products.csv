@@ -1,0 +1,24 @@
+product id,product name,category,base price
+P001,Wireless Earbuds,Electronics,8.0
+P002,Bluetooth Speaker,Electronics,18.0
+P003,USB-C Hub,Electronics,160.0
+P004,Mechanical Keyboard,Electronics,95.0
+P005,Gaming Mouse,Electronics,42.0
+P006,Smart Watch,Electronics,18.0
+P007,Portable SSD 1TB,Electronics,78.0
+P008,Webcam,Electronics,120.0
+P009,Power Bank,Electronics,18.0
+P010,Monitor 24 inch,Electronics,18.0
+P011,Tablet Stand,Electronics,28.0
+P012,Desk Lamp,Home,22.0
+P013,Office Chair,Home,120.0
+P014,Water Bottle,Home,42.0
+P015,Notebook Set,Home,120.0
+P016,Backpack,Lifestyle,8.0
+P017,Phone Case,Lifestyle,28.0
+P018,Yoga Mat,Lifestyle,12.0
+P019,Running Shoes,Lifestyle,12.0
+P020,Laptop Stand,Accessories,95.0
+P021,Phone Charger,Accessories,42.0
+P022,Cable Organizer,Accessories,95.0
+P023,Mouse Pad,Accessories,18.0
