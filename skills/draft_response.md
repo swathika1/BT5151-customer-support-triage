@@ -26,10 +26,12 @@ Final response-generation node in the serving pipeline, after customer scope has
 3. Build a query-relevant context slice before calling the LLM:
    - Shipping or delivery queries: use delivery-related fields only
    - Refund queries: use refund-related fields only
+   - Return queries: use return status, return-claim decision, and refund eligibility fields only
    - Payment queries: use payment-related fields only
    - Invoice queries: use billing and order reference fields only
    - Subscription or account queries: use customer profile and subscription fields only
    - Order-specific queries: use the selected order plus only the fields needed for the exact question
+   - Delay queries: include seller details if not yet dispatched, otherwise include transporter and delivery ID details
    - If available, also use any `service_recovery` assessment prepared upstream to decide whether an apology or escalation note is needed
 
 4. If `needs_more_context == True`:
@@ -73,6 +75,25 @@ Final response-generation node in the serving pipeline, after customer scope has
   - acknowledge that the delay appears to be on the company/logistics side based on the records available
   - apologize for the delay
   - do not speculate about an exact transporter root cause if none is present in context
+- If an order has not been dispatched yet:
+  - explain the delay is currently on the seller side
+  - include seller details from the structured dataset
+  - ask the user to contact the seller
+  - say "We will also get in touch with the seller"
+- If an order has been dispatched but not delivered:
+  - explain that it is in transit
+  - include transporter details from the structured dataset
+  - ask the user to track it with the delivery ID
+- If the order is already delivered:
+  - do not describe it as delayed
+- If the order is cancelled or the payment failed:
+  - clearly explain that the order is not active
+- Refund rules:
+  - `Pending` refund: say the refund was initiated but not completed, and mention the expected refund date
+  - `Processed` refund: mention the refund amount and the actual refund date
+  - `Rejected` return or return claim not accepted: clearly say refund is not allowed
+  - COD order cancelled before payment capture: clearly say no refund is due
+  - `Not Applicable` refund: explain why based on order, payment, and return status
 - If the user is asking why an order has not arrived and the system does not have enough context to explain the cause:
   - apologize for the delay first
   - say the issue will be escalated to customer support/logistics so the team can get an update from the transporter
