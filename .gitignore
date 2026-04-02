@@ -47,6 +47,8 @@ Thumbs.db
 
 # Data & Generated Artifacts
 *.csv
+!ecommerce_data/
+!ecommerce_data/*.csv
 *.xlsx
 artifacts/
 *.pkl

@@ -1,0 +1,201 @@
+CID,Name,address,city,state,country,registered email,registered phone number,account opening date,account status,Reason,prime subscription flag (1/0),subscription plan name,last subscribed date
+1,Imran Malik,169 Park Lane,Shah Alam,Selangor,Malaysia,imran.malik1@example.com,+60 18-6585540,2023-01-06,active,,1,Prime Quarterly,
+2,Divya Krishnan,112 Sheikh Zayed Road,Marseille,Provence-Alpes-Côte d'Azur,France,divya.krishnan2@example.com,+33 6 67137722,2023-10-25,inactive,Dormant account review,0,No Plan,2025-11-25
+3,Liam Fischer,122 King's Road,London,England,United Kingdom,liam.fischer3@example.com,+44 7351815028,2023-10-25,active,,0,No Plan,2023-12-05
+4,Amelia Weber,128 MG Road,Bengaluru,Karnataka,India,amelia.weber4@example.com,+91 9402759825,2024-06-11,inactive,Subscription expired and account inactive,0,No Plan,2025-12-18
+5,Aqeel Karim,"Blk 384, Jurong West St 17, #27-522",Yishun,Singapore,Singapore,aqeel.karim5@example.com,+65 91916586,2025-01-21,active,,0,No Plan,2025-10-15
+6,Hassan Mahmood,"Blk 623, Jurong West St 87, #30-113",Tampines,Singapore,Singapore,hassan.mahmood6@example.com,+65 84795509,2022-01-01,active,,0,No Plan,2023-08-12
+7,Yu Xuan Huang,187 Park Lane,Bengaluru,Karnataka,India,yu.huang7@example.com,+91 9434171890,2026-01-25,active,,0,No Plan,2026-02-06
+8,Rohan Malhotra,124 High Street,Petaling Jaya,Selangor,Malaysia,rohan.malhotra8@example.com,+60 10-9526548,2023-03-07,active,,0,No Plan,2024-02-15
+9,Karthik Sharma,"Blk 339, Woodlands Dr 39, #29-551",Bedok,Singapore,Singapore,karthik.sharma9@example.com,+65 88126449,2025-02-17,active,,1,Prime Monthly,
+10,Riya Singh,210 Church Street,Sharjah,Sharjah,United Arab Emirates,riya.singh10@example.com,+971 52 2631260,2025-11-29,locked,Multiple failed login attempts,0,No Plan,2026-02-13
+11,Omar Mahmood,237 Rue Lafayette,Chennai,Tamil Nadu,India,omar.mahmood11@example.com,+91 7104361315,2024-03-18,inactive,Dormant account review,0,No Plan,2026-01-29
+12,Meera Menon,205 Park Lane,Hyderabad,Telangana,India,meera.menon12@example.com,+91 8141597149,2025-12-27,suspended,Repeated failed payments,0,No Plan,2026-02-09
+13,Kavya Nair,29 Rue Lafayette,Petaling Jaya,Selangor,Malaysia,kavya.nair13@example.com,+60 17-8572373,2025-06-16,active,,0,No Plan,2025-10-11
+14,Jun Jie Zhang,120 Park Lane,New Delhi,Delhi,India,jun.zhang14@example.com,+91 6562846886,2024-10-15,active,,1,Prime Quarterly,
+15,Clara Weber,70 Rue Lafayette,Mumbai,Maharashtra,India,clara.weber15@example.com,+91 6669746897,2026-02-16,inactive,User requested deactivation,0,No Plan,2026-02-23
+16,Omar Sheikh,96 Sheikh Zayed Road,Pune,Maharashtra,India,omar.sheikh16@example.com,+91 8387991837,2025-10-27,active,,0,No Plan,2026-01-18
+17,Elena Miller,38 Park Lane,Hamburg,Hamburg,Germany,elena.miller17@example.com,+49 1532734881,2023-02-01,active,,1,Prime Quarterly,
+18,Clara Fischer,122 MG Road,Manchester,England,United Kingdom,clara.fischer18@example.com,+44 7507928436,2025-04-06,active,,1,Prime Monthly,
+19,Hannah Ng,148 MG Road,Hamburg,Hamburg,Germany,hannah.ng19@example.com,+49 1589218592,2022-04-17,active,,1,Prime Annual,
+20,Pooja Das,187 High Street,Abu Dhabi,Abu Dhabi,United Arab Emirates,pooja.das20@example.com,+971 59 9965821,2022-09-10,closed,Permanent compliance action,0,No Plan,2025-06-10
+21,Jun Jie Chua,"Blk 729, Bukit Batok St 78, #36-859",Bukit Batok,Singapore,Singapore,jun.chua21@example.com,+65 81588666,2024-08-03,closed,User requested account closure,0,No Plan,2025-01-17
+22,Varun Menon,238 Jalan Ampang,Paris,Île-de-France,France,varun.menon22@example.com,+33 6 47682208,2022-03-22,active,,0,No Plan,2023-12-31
+23,Priya Patel,199 Jalan Ampang,Hyderabad,Telangana,India,priya.patel23@example.com,+91 7111594257,2022-09-11,inactive,Subscription expired and account inactive,0,No Plan,2022-11-08
+24,Riya Krishnan,19 Sheikh Zayed Road,Berlin,Berlin,Germany,riya.krishnan24@example.com,+49 1576500339,2025-07-22,active,,0,No Plan,2025-09-30
+25,Arjun Agarwal,"Blk 445, Bedok North Rd 27, #11-588",Tampines,Singapore,Singapore,arjun.agarwal25@example.com,+65 92979680,2024-07-31,active,,0,No Plan,2025-03-15
+26,Sana Mahmood,"Blk 891, Tampines Ave 74, #05-619",Jurong East,Singapore,Singapore,sana.mahmood26@example.com,+65 96389449,2025-12-21,active,,1,Prime Monthly,
+27,Vanessa Yeo,136 Sheikh Zayed Road,Pune,Maharashtra,India,vanessa.yeo27@example.com,+91 8297519051,2022-12-18,active,,1,Prime Quarterly,
+28,Yu Xuan Zhang,"Blk 777, Jurong West St 92, #49-631",Bedok,Singapore,Singapore,yu.zhang28@example.com,+65 92507813,2023-02-27,inactive,Subscription expired and account inactive,0,No Plan,2025-09-19
+29,Amina Hussain,52 High Street,Kuala Lumpur,Kuala Lumpur,Malaysia,amina.hussain29@example.com,+60 19-2861462,2022-06-18,active,,1,Prime Monthly,
+30,Sneha Bose,36 High Street,London,England,United Kingdom,sneha.bose30@example.com,+44 7341522005,2023-04-12,active,,1,Prime Quarterly,
+31,Arjun Malhotra,"Blk 924, Woodlands Dr 88, #14-044",Woodlands,Singapore,Singapore,arjun.malhotra31@example.com,+65 86835206,2023-03-07,active,,1,Prime Monthly,
+32,Liam Brown,"Blk 350, Bukit Batok St 94, #16-199",Yishun,Singapore,Singapore,liam.brown32@example.com,+65 94303404,2025-02-17,active,,0,No Plan,2025-09-16
+33,Yusuf Mahmood,65 Anna Salai,Birmingham,England,United Kingdom,yusuf.mahmood33@example.com,+44 7944544723,2024-12-06,active,,1,Prime Annual,
+34,Ethan Ng,185 MG Road,Birmingham,England,United Kingdom,ethan.ng34@example.com,+44 7384824016,2024-10-01,active,,1,Prime Monthly,
+35,Zara Sheikh,"Blk 429, Tampines Ave 87, #42-943",Bedok,Singapore,Singapore,zara.sheikh35@example.com,+65 85708667,2024-06-15,suspended,Repeated failed payments,0,No Plan,2025-12-13
+36,Amelia Bauer,"Blk 480, Woodlands Dr 61, #48-556",Bedok,Singapore,Singapore,amelia.bauer36@example.com,+65 94279808,2023-11-29,inactive,Subscription expired and account inactive,0,No Plan,2025-11-09
+37,Aarav Bose,29 Park Lane,Johor Bahru,Johor,Malaysia,aarav.bose37@example.com,+60 16-2210726,2022-10-27,active,,0,No Plan,2023-10-25
+38,Aditya Menon,"Blk 462, Woodlands Dr 49, #04-492",Woodlands,Singapore,Singapore,aditya.menon38@example.com,+65 99783060,2022-06-23,active,,0,No Plan,2024-03-19
+39,Vanessa Chong,"Blk 761, Tampines Ave 56, #49-797",Bedok,Singapore,Singapore,vanessa.chong39@example.com,+65 83344345,2024-05-27,active,,0,No Plan,2025-03-12
+40,Rahul Das,80 Church Street,Shah Alam,Selangor,Malaysia,rahul.das40@example.com,+60 13-8178185,2024-10-22,active,,1,Prime Annual,
+41,Vikram Kapoor,170 Church Street,Hamburg,Hamburg,Germany,vikram.kapoor41@example.com,+49 1556647101,2025-01-30,active,,0,No Plan,2025-12-09
+42,Varun Iyer,"Blk 36, Jurong West St 72, #01-190",Jurong East,Singapore,Singapore,varun.iyer42@example.com,+65 84333743,2025-06-14,inactive,Dormant account review,0,No Plan,2025-09-29
+43,Ryan Lee,172 Jalan Ampang,Munich,Bavaria,Germany,ryan.lee43@example.com,+49 1598010041,2023-10-31,locked,Multiple failed login attempts,0,No Plan,2025-07-19
+44,Jia Hao Zhang,30 Park Lane,Bengaluru,Karnataka,India,jia.zhang44@example.com,+91 8127732592,2023-09-07,inactive,Subscription expired and account inactive,0,No Plan,2024-03-18
+45,Liam Wilson,"Blk 934, Bukit Batok St 96, #31-468",Woodlands,Singapore,Singapore,liam.wilson45@example.com,+65 94424802,2022-08-25,suspended,Terms of service violation review,0,No Plan,2024-11-02
+46,Sana Ali,"Blk 333, Bukit Batok St 34, #23-335",Tampines,Singapore,Singapore,sana.ali46@example.com,+65 82646206,2022-12-08,active,,1,Prime Quarterly,
+47,Arjun Reddy,147 Park Lane,Dubai,Dubai,United Arab Emirates,arjun.reddy47@example.com,+971 55 4012488,2022-02-02,active,,0,No Plan,2022-12-23
+48,Layla Qureshi,212 Church Street,Shah Alam,Selangor,Malaysia,layla.qureshi48@example.com,+60 19-5837691,2025-04-15,active,,1,Prime Monthly,
+49,Yan Ling Huang,"Blk 40, Jurong West St 55, #13-130",Jurong East,Singapore,Singapore,yan.huang49@example.com,+65 88034716,2024-04-09,suspended,Chargeback under investigation,0,No Plan,2024-04-20
+50,Omar Ansari,"Blk 976, Bukit Batok St 19, #06-508",Woodlands,Singapore,Singapore,omar.ansari50@example.com,+65 89624846,2025-03-29,active,,1,Prime Annual,
+51,Ryan Pillai,35 Unter den Linden,Sharjah,Sharjah,United Arab Emirates,ryan.pillai51@example.com,+971 57 2863636,2023-06-13,active,,1,Prime Monthly,
+52,Ahmed Malik,94 Brigade Road,Berlin,Berlin,Germany,ahmed.malik52@example.com,+49 1538699213,2025-05-31,active,,1,Prime Annual,
+53,Charlotte Bauer,124 MG Road,Manchester,England,United Kingdom,charlotte.bauer53@example.com,+44 7351610336,2024-01-12,active,,1,Prime Monthly,
+54,Zhi Hao Lee,"Blk 918, Tampines Ave 77, #12-960",Tampines,Singapore,Singapore,zhi.lee54@example.com,+65 94771938,2026-01-14,active,,0,No Plan,2026-02-19
+55,Aarav Krishnan,"Blk 58, Bukit Batok St 32, #17-033",Bedok,Singapore,Singapore,aarav.krishnan55@example.com,+65 96152718,2023-12-09,active,,0,No Plan,2024-08-09
+56,Ishaan Iyer,108 Church Street,Shah Alam,Selangor,Malaysia,ishaan.iyer56@example.com,+60 12-4416714,2024-12-18,active,,1,Prime Quarterly,
+57,Pooja Jain,"Blk 336, Woodlands Dr 28, #20-843",Woodlands,Singapore,Singapore,pooja.jain57@example.com,+65 98233570,2024-02-17,active,,1,Prime Quarterly,
+58,Ananya Jain,"Blk 244, Jurong West St 46, #07-042",Jurong East,Singapore,Singapore,ananya.jain58@example.com,+65 98688435,2025-07-30,inactive,No login activity for 180+ days,0,No Plan,2026-01-15
+59,Amina Ali,139 Jalan Ampang,Dubai,Dubai,United Arab Emirates,amina.ali59@example.com,+971 57 2803949,2025-06-23,active,,0,No Plan,2025-09-27
+60,Jolene Chong,"Blk 32, Tampines Ave 9, #33-742",Bukit Batok,Singapore,Singapore,jolene.chong60@example.com,+65 93824131,2023-11-28,active,,0,No Plan,2024-10-07
+61,Kai Wen Lee,172 Rue Lafayette,Bengaluru,Karnataka,India,kai.lee61@example.com,+91 6725634365,2023-07-29,inactive,Subscription expired and account inactive,0,No Plan,2025-04-29
+62,Jolene Teo,"Blk 177, Woodlands Dr 61, #43-881",Bukit Batok,Singapore,Singapore,jolene.teo62@example.com,+65 85247259,2023-07-08,active,,0,No Plan,2024-02-04
+63,Noah Dubois,"Blk 531, Jurong West St 74, #43-129",Yishun,Singapore,Singapore,noah.dubois63@example.com,+65 98518772,2025-05-27,active,,0,No Plan,2026-02-21
+64,Karthik Reddy,159 Church Street,Dubai,Dubai,United Arab Emirates,karthik.reddy64@example.com,+971 51 5795047,2022-08-19,active,,1,Prime Annual,
+65,Varun Subramanian,"Blk 772, Bukit Batok St 61, #12-486",Bedok,Singapore,Singapore,varun.subramanian65@example.com,+65 84401968,2022-06-16,active,,1,Prime Quarterly,
+66,Darren Teo,75 Unter den Linden,Mumbai,Maharashtra,India,darren.teo66@example.com,+91 6532660518,2022-10-07,closed,Fraud prevention closure,0,No Plan,2024-11-06
+67,Rohan Bose,67 Church Street,Lyon,Auvergne-Rhône-Alpes,France,rohan.bose67@example.com,+33 6 38713784,2022-01-31,active,,0,No Plan,2024-07-04
+68,George Miller,169 Sheikh Zayed Road,Birmingham,England,United Kingdom,george.miller68@example.com,+44 7361284223,2023-08-30,locked,Security verification pending,0,No Plan,2024-05-29
+69,Anna Rossi,31 MG Road,Manchester,England,United Kingdom,anna.rossi69@example.com,+44 7905400616,2025-03-08,locked,Suspicious payment activity,0,No Plan,2025-04-30
+70,Amelia Martin,192 Brigade Road,Birmingham,England,United Kingdom,amelia.martin70@example.com,+44 7229909053,2024-10-19,active,,1,Prime Annual,
+71,Noor Hussain,"Blk 124, Woodlands Dr 85, #28-026",Woodlands,Singapore,Singapore,noor.hussain71@example.com,+65 87866956,2022-01-16,active,,1,Prime Monthly,
+72,Pooja Patel,136 Jalan Ampang,Birmingham,England,United Kingdom,pooja.patel72@example.com,+44 7621388770,2024-04-23,active,,1,Prime Annual,
+73,Ryan Ng,133 High Street,New Delhi,Delhi,India,ryan.ng73@example.com,+91 8457876900,2023-08-30,active,,0,No Plan,2026-02-22
+74,Ethan Tan,69 High Street,Bengaluru,Karnataka,India,ethan.tan74@example.com,+91 7440132396,2024-12-29,active,,0,No Plan,2026-01-02
+75,Hannah Chong,44 Jalan Ampang,Bengaluru,Karnataka,India,hannah.chong75@example.com,+91 8840232889,2024-07-14,active,,1,Prime Quarterly,
+76,Hannah Tan,"Blk 762, Bukit Batok St 2, #15-005",Bukit Batok,Singapore,Singapore,hannah.tan76@example.com,+65 82571873,2023-04-30,active,,0,No Plan,2025-02-26
+77,Jun Jie Zhao,"Blk 240, Jurong West St 10, #31-537",Bukit Batok,Singapore,Singapore,jun.zhao77@example.com,+65 99262262,2023-10-07,inactive,Dormant account review,0,No Plan,2025-08-30
+78,Ananya Jain,132 King's Road,Birmingham,England,United Kingdom,ananya.jain78@example.com,+44 7631762465,2023-08-22,active,,1,Prime Monthly,
+79,Jia Hao Lim,79 Anna Salai,Pune,Maharashtra,India,jia.lim79@example.com,+91 8757901528,2025-10-08,active,,0,No Plan,2026-01-01
+80,Samira Siddiqui,197 Jalan Ampang,Kuala Lumpur,Kuala Lumpur,Malaysia,samira.siddiqui80@example.com,+60 13-7544082,2024-07-11,closed,Fraud prevention closure,0,No Plan,2025-04-10
+81,George Martin,41 Park Lane,Bengaluru,Karnataka,India,george.martin81@example.com,+91 6306886363,2024-02-26,active,,1,Prime Monthly,
+82,Fatima Ali,26 High Street,Mumbai,Maharashtra,India,fatima.ali82@example.com,+91 6962690049,2022-03-09,active,,1,Prime Quarterly,
+83,Rahul Agarwal,238 High Street,Abu Dhabi,Abu Dhabi,United Arab Emirates,rahul.agarwal83@example.com,+971 53 5634942,2025-08-07,active,,1,Prime Quarterly,
+84,Clara Wilson,"Blk 294, Woodlands Dr 12, #18-433",Bedok,Singapore,Singapore,clara.wilson84@example.com,+65 89243427,2025-10-30,active,,0,No Plan,2026-01-08
+85,Ahmed Malik,"Blk 719, Bedok North Rd 25, #05-275",Bukit Batok,Singapore,Singapore,ahmed.malik85@example.com,+65 81144540,2022-08-04,active,,0,No Plan,2023-03-23
+86,Yong Sheng Tan,196 Jalan Ampang,Chennai,Tamil Nadu,India,yong.tan86@example.com,+91 6475622131,2022-12-26,active,,0,No Plan,2024-06-18
+87,Amina Abdullah,240 Park Lane,Dubai,Dubai,United Arab Emirates,amina.abdullah87@example.com,+971 52 5206420,2025-12-30,active,,1,Prime Monthly,
+88,Ahmed Siddiqui,"Blk 706, Bukit Batok St 15, #13-640",Woodlands,Singapore,Singapore,ahmed.siddiqui88@example.com,+65 87598157,2024-07-02,active,,1,Prime Monthly,
+89,Hassan Ansari,88 MG Road,Sharjah,Sharjah,United Arab Emirates,hassan.ansari89@example.com,+971 51 3836471,2024-11-11,active,,1,Prime Quarterly,
+90,Xin Yi Chen,26 High Street,Johor Bahru,Johor,Malaysia,xin.chen90@example.com,+60 10-2672911,2022-03-03,closed,Fraud prevention closure,0,No Plan,2023-10-19
+91,Yusuf Siddiqui,8 Unter den Linden,Dubai,Dubai,United Arab Emirates,yusuf.siddiqui91@example.com,+971 53 7165223,2022-01-29,inactive,Subscription expired and account inactive,0,No Plan,2022-04-04
+92,Karthik Iyer,37 High Street,Marseille,Provence-Alpes-Côte d'Azur,France,karthik.iyer92@example.com,+33 6 68751948,2024-09-16,active,,0,No Plan,2025-09-13
+93,Luca Dubois,187 Rue Lafayette,London,England,United Kingdom,luca.dubois93@example.com,+44 7948810175,2023-05-18,active,,1,Prime Monthly,
+94,Felicia Chong,173 MG Road,New Delhi,Delhi,India,felicia.chong94@example.com,+91 7562371605,2023-05-08,locked,Multiple failed login attempts,0,No Plan,2024-11-23
+95,Ananya Mehta,"Blk 803, Bukit Batok St 41, #33-473",Tampines,Singapore,Singapore,ananya.mehta95@example.com,+65 84120956,2024-12-10,active,,0,No Plan,2025-02-28
+96,Noor Qureshi,77 King's Road,Birmingham,England,United Kingdom,noor.qureshi96@example.com,+44 7404226314,2023-11-02,active,,1,Prime Monthly,
+97,Imran Mahmood,100 Unter den Linden,Hyderabad,Telangana,India,imran.mahmood97@example.com,+91 7939234703,2022-02-13,active,,0,No Plan,2023-05-27
+98,Mia Laurent,116 Church Street,Hyderabad,Telangana,India,mia.laurent98@example.com,+91 7130241750,2022-11-20,inactive,Subscription expired and account inactive,0,No Plan,2025-11-20
+99,Samira Karim,"Blk 765, Bedok North Rd 95, #13-960",Tampines,Singapore,Singapore,samira.karim99@example.com,+65 88793539,2022-09-01,active,,1,Prime Annual,
+100,Lucas Martin,110 Sheikh Zayed Road,New Delhi,Delhi,India,lucas.martin100@example.com,+91 6375583360,2023-11-21,closed,Fraud prevention closure,0,No Plan,2024-11-11
+101,Aisha Reddy,90 Jalan Ampang,Mumbai,Maharashtra,India,aisha.reddy101@example.com,+91 8676824610,2025-03-29,active,,1,Prime Quarterly,
+102,Xin Yi Ng,172 Rue Lafayette,Abu Dhabi,Abu Dhabi,United Arab Emirates,xin.ng102@example.com,+971 50 1564154,2024-10-02,active,,0,No Plan,2025-01-13
+103,Ahmed Khan,28 MG Road,London,England,United Kingdom,ahmed.khan103@example.com,+44 7450672583,2025-06-03,closed,User requested account closure,0,No Plan,2025-07-19
+104,Meera Patel,"Blk 769, Woodlands Dr 7, #17-141",Bedok,Singapore,Singapore,meera.patel104@example.com,+65 98178532,2024-08-18,active,,1,Prime Annual,
+105,Amelia Bauer,56 Park Lane,Mumbai,Maharashtra,India,amelia.bauer105@example.com,+91 8669735162,2025-01-22,active,,1,Prime Monthly,
+106,Layla Ali,173 Sheikh Zayed Road,Mumbai,Maharashtra,India,layla.ali106@example.com,+91 9282318401,2023-10-06,locked,Multiple failed login attempts,0,No Plan,2023-11-10
+107,Rahul Das,"Blk 506, Bukit Batok St 4, #18-152",Jurong East,Singapore,Singapore,rahul.das107@example.com,+65 86264691,2025-07-06,active,,1,Prime Annual,
+108,Aisha Das,116 Rue Lafayette,Hamburg,Hamburg,Germany,aisha.das108@example.com,+49 1558716549,2022-11-05,locked,Multiple failed login attempts,0,No Plan,2025-05-27
+109,Vikram Kapoor,69 Anna Salai,Hamburg,Hamburg,Germany,vikram.kapoor109@example.com,+49 1584744786,2022-08-05,active,,0,No Plan,2022-11-28
+110,Zara Mahmood,"Blk 682, Tampines Ave 79, #40-395",Bedok,Singapore,Singapore,zara.mahmood110@example.com,+65 84473547,2022-11-15,active,,0,No Plan,2024-02-25
+111,Jolene Raj,174 Brigade Road,Hyderabad,Telangana,India,jolene.raj111@example.com,+91 6239343058,2022-08-27,locked,Suspicious payment activity,0,No Plan,2025-09-15
+112,Mohamed Khan,46 High Street,Hyderabad,Telangana,India,mohamed.khan112@example.com,+91 7893634622,2022-07-29,active,,0,No Plan,2023-06-14
+113,Anna Wilson,23 Rue Lafayette,Berlin,Berlin,Germany,anna.wilson113@example.com,+49 1526973880,2026-01-04,active,,0,No Plan,2026-02-02
+114,Sana Sheikh,"Blk 303, Tampines Ave 32, #36-796",Bukit Batok,Singapore,Singapore,sana.sheikh114@example.com,+65 93340278,2025-07-13,active,,0,No Plan,2025-08-13
+115,Pooja Kapoor,22 Unter den Linden,Paris,Île-de-France,France,pooja.kapoor115@example.com,+33 6 75738271,2022-12-29,suspended,Chargeback under investigation,0,No Plan,2024-07-23
+116,Li Xuan Tan,"Blk 650, Bukit Batok St 8, #33-657",Yishun,Singapore,Singapore,li.tan116@example.com,+65 98331498,2022-12-16,active,,1,Prime Monthly,
+117,Sneha Menon,213 Unter den Linden,New Delhi,Delhi,India,sneha.menon117@example.com,+91 8580206946,2022-08-11,active,,1,Prime Monthly,
+118,Wei Ming Lim,201 Rue Lafayette,Munich,Bavaria,Germany,wei.lim118@example.com,+49 1517780708,2024-08-18,inactive,Subscription expired and account inactive,0,No Plan,2025-09-19
+119,Brandon Pereira,51 Park Lane,Mumbai,Maharashtra,India,brandon.pereira119@example.com,+91 7253691275,2022-04-03,suspended,Chargeback under investigation,0,No Plan,2026-02-21
+120,Aarav Subramanian,145 Church Street,Berlin,Berlin,Germany,aarav.subramanian120@example.com,+49 1538019455,2024-11-07,active,,1,Prime Annual,
+121,Varun Iyer,117 King's Road,Pune,Maharashtra,India,varun.iyer121@example.com,+91 8594409506,2022-04-16,active,,0,No Plan,2024-09-03
+122,Jia Hao Liu,160 MG Road,Dubai,Dubai,United Arab Emirates,jia.liu122@example.com,+971 52 6496275,2025-09-24,active,,1,Prime Quarterly,
+123,Natalie Yeo,"Blk 695, Woodlands Dr 35, #46-555",Yishun,Singapore,Singapore,natalie.yeo123@example.com,+65 85848456,2022-12-30,active,,0,No Plan,2023-12-04
+124,Pooja Krishnan,217 King's Road,Sharjah,Sharjah,United Arab Emirates,pooja.krishnan124@example.com,+971 52 3025032,2025-07-19,locked,Security verification pending,0,No Plan,2026-02-17
+125,Hassan Siddiqui,81 Sheikh Zayed Road,Marseille,Provence-Alpes-Côte d'Azur,France,hassan.siddiqui125@example.com,+33 6 36574972,2023-01-02,active,,0,No Plan,2025-10-29
+126,Neha Reddy,204 Anna Salai,Chennai,Tamil Nadu,India,neha.reddy126@example.com,+91 8488517134,2022-06-02,active,,0,No Plan,2024-02-01
+127,Karthik Jain,187 Unter den Linden,Hyderabad,Telangana,India,karthik.jain127@example.com,+91 6746278536,2024-02-14,inactive,Dormant account review,0,No Plan,2025-03-23
+128,Aqeel Ansari,96 MG Road,Mumbai,Maharashtra,India,aqeel.ansari128@example.com,+91 7880457633,2025-10-12,active,,0,No Plan,2025-11-01
+129,George Miller,219 Anna Salai,Johor Bahru,Johor,Malaysia,george.miller129@example.com,+60 13-9135706,2025-05-29,active,,0,No Plan,2025-07-14
+130,Terence Goh,231 Brigade Road,Chennai,Tamil Nadu,India,terence.goh130@example.com,+91 7223757662,2023-10-20,active,,1,Prime Monthly,
+131,Yong Sheng Zhang,45 Rue Lafayette,Bengaluru,Karnataka,India,yong.zhang131@example.com,+91 8790570506,2025-01-09,active,,1,Prime Monthly,
+132,Amina Karim,77 Sheikh Zayed Road,Sharjah,Sharjah,United Arab Emirates,amina.karim132@example.com,+971 56 3484797,2022-10-01,active,,0,No Plan,2022-10-07
+133,Jing Wen Huang,97 Jalan Ampang,Pune,Maharashtra,India,jing.huang133@example.com,+91 9615484009,2022-01-10,active,,0,No Plan,2022-08-15
+134,Mohamed Ansari,89 Brigade Road,Berlin,Berlin,Germany,mohamed.ansari134@example.com,+49 1544969983,2024-06-06,active,,1,Prime Annual,
+135,Vanessa Chong,11 Sheikh Zayed Road,Pune,Maharashtra,India,vanessa.chong135@example.com,+91 6600649679,2023-07-08,active,,1,Prime Monthly,
+136,Hannah Fernando,"Blk 144, Tampines Ave 4, #29-587",Woodlands,Singapore,Singapore,hannah.fernando136@example.com,+65 92513713,2025-03-09,active,,1,Prime Annual,
+137,Ishaan Gupta,106 King's Road,Sharjah,Sharjah,United Arab Emirates,ishaan.gupta137@example.com,+971 59 1106435,2022-08-04,active,,0,No Plan,2025-11-15
+138,Pooja Iyer,152 Church Street,Sharjah,Sharjah,United Arab Emirates,pooja.iyer138@example.com,+971 57 8405993,2024-07-25,locked,Security verification pending,0,No Plan,2026-02-12
+139,Rohan Sharma,"Blk 864, Jurong West St 74, #32-599",Jurong East,Singapore,Singapore,rohan.sharma139@example.com,+65 87623985,2025-08-09,active,,1,Prime Annual,
+140,Lucas Weber,56 Unter den Linden,Mumbai,Maharashtra,India,lucas.weber140@example.com,+91 8506408352,2025-12-02,suspended,Terms of service violation review,0,No Plan,2025-12-22
+141,Zara Khan,128 Church Street,Hyderabad,Telangana,India,zara.khan141@example.com,+91 6423951523,2024-05-15,active,,1,Prime Monthly,
+142,Grace Ng,151 Brigade Road,London,England,United Kingdom,grace.ng142@example.com,+44 7252732896,2025-01-23,active,,1,Prime Quarterly,
+143,Yu Xuan Ng,211 High Street,Hyderabad,Telangana,India,yu.ng143@example.com,+91 6397944540,2025-07-25,active,,0,No Plan,2025-09-26
+144,Xiao Han Liu,12 MG Road,New Delhi,Delhi,India,xiao.liu144@example.com,+91 7535541867,2025-10-08,active,,1,Prime Quarterly,
+145,Hui Min Huang,"Blk 608, Jurong West St 56, #42-098",Woodlands,Singapore,Singapore,hui.huang145@example.com,+65 81018988,2025-01-30,locked,Multiple failed login attempts,0,No Plan,2025-05-11
+146,Aisha Bose,160 Church Street,Kuala Lumpur,Kuala Lumpur,Malaysia,aisha.bose146@example.com,+60 12-1961226,2022-03-24,active,,0,No Plan,2025-06-27
+147,Varun Malhotra,169 Brigade Road,New Delhi,Delhi,India,varun.malhotra147@example.com,+91 7822575866,2023-02-04,active,,1,Prime Annual,
+148,Vikram Sharma,69 King's Road,Johor Bahru,Johor,Malaysia,vikram.sharma148@example.com,+60 11-2274903,2024-11-12,active,,1,Prime Annual,
+149,Aqeel Ansari,182 Rue Lafayette,Manchester,England,United Kingdom,aqeel.ansari149@example.com,+44 7148878231,2022-10-26,active,,0,No Plan,2025-06-05
+150,Anna Martin,219 MG Road,Petaling Jaya,Selangor,Malaysia,anna.martin150@example.com,+60 13-6063528,2025-07-22,active,,0,No Plan,2025-09-26
+151,Arjun Agarwal,229 Church Street,Mumbai,Maharashtra,India,arjun.agarwal151@example.com,+91 7738758830,2024-03-06,inactive,User requested deactivation,0,No Plan,2024-03-27
+152,Charlotte Wilson,"Blk 361, Tampines Ave 79, #22-866",Bukit Batok,Singapore,Singapore,charlotte.wilson152@example.com,+65 93418155,2024-09-21,active,,1,Prime Quarterly,
+153,Vanessa Lee,201 Sheikh Zayed Road,Bengaluru,Karnataka,India,vanessa.lee153@example.com,+91 7698748206,2025-01-23,locked,Password reset required after unusual activity,0,No Plan,2025-11-09
+154,Felicia Raj,76 Park Lane,Munich,Bavaria,Germany,felicia.raj154@example.com,+49 1579349445,2024-01-28,active,,1,Prime Quarterly,
+155,Layla Abdullah,101 Brigade Road,Birmingham,England,United Kingdom,layla.abdullah155@example.com,+44 7230999660,2024-05-22,active,,1,Prime Annual,
+156,Rahul Patel,"Blk 176, Woodlands Dr 4, #09-004",Jurong East,Singapore,Singapore,rahul.patel156@example.com,+65 82523730,2022-04-06,locked,Suspicious payment activity,0,No Plan,2023-09-26
+157,Aarav Krishnan,230 Brigade Road,New Delhi,Delhi,India,aarav.krishnan157@example.com,+91 9226682547,2026-01-06,active,,1,Prime Monthly,
+158,Brandon Yeo,72 Church Street,Berlin,Berlin,Germany,brandon.yeo158@example.com,+49 1516971506,2022-05-15,active,,1,Prime Annual,
+159,Kavya Reddy,35 Brigade Road,Manchester,England,United Kingdom,kavya.reddy159@example.com,+44 7496657686,2022-07-21,active,,1,Prime Annual,
+160,Charlotte Moreau,93 Park Lane,Hyderabad,Telangana,India,charlotte.moreau160@example.com,+91 8609029363,2024-05-28,active,,0,No Plan,2025-10-11
+161,Ishaan Mehta,212 MG Road,Abu Dhabi,Abu Dhabi,United Arab Emirates,ishaan.mehta161@example.com,+971 57 7982748,2025-02-05,active,,1,Prime Quarterly,
+162,Sneha Mehta,172 Park Lane,Pune,Maharashtra,India,sneha.mehta162@example.com,+91 8283748527,2023-04-02,active,,1,Prime Annual,
+163,Luca Fischer,"Blk 185, Tampines Ave 26, #40-432",Jurong East,Singapore,Singapore,luca.fischer163@example.com,+65 94227206,2025-07-22,active,,0,No Plan,2025-08-14
+164,Shu Ting Chen,146 Rue Lafayette,Johor Bahru,Johor,Malaysia,shu.chen164@example.com,+60 12-7767225,2022-06-24,active,,0,No Plan,2024-05-06
+165,Pooja Subramanian,193 High Street,Lyon,Auvergne-Rhône-Alpes,France,pooja.subramanian165@example.com,+33 6 64672249,2023-01-30,active,,0,No Plan,2024-11-30
+166,Samira Hussain,210 Brigade Road,Petaling Jaya,Selangor,Malaysia,samira.hussain166@example.com,+60 10-9295036,2025-02-16,active,,1,Prime Annual,
+167,Hannah Chong,219 King's Road,Dubai,Dubai,United Arab Emirates,hannah.chong167@example.com,+971 54 1735428,2022-01-07,active,,0,No Plan,2022-05-15
+168,Jun Jie Tan,105 Rue Lafayette,Berlin,Berlin,Germany,jun.tan168@example.com,+49 1521055352,2022-09-22,active,,1,Prime Annual,
+169,Yong Sheng Tan,130 Church Street,Chennai,Tamil Nadu,India,yong.tan169@example.com,+91 9632023148,2022-01-01,locked,Password reset required after unusual activity,0,No Plan,2022-07-27
+170,Omar Ansari,122 Jalan Ampang,Kuala Lumpur,Kuala Lumpur,Malaysia,omar.ansari170@example.com,+60 10-4609304,2025-08-28,suspended,Repeated failed payments,0,No Plan,2025-12-09
+171,Nikhil Bose,35 Sheikh Zayed Road,Hyderabad,Telangana,India,nikhil.bose171@example.com,+91 7276333996,2022-12-23,active,,0,No Plan,2024-08-04
+172,Nikhil Kapoor,"Blk 690, Woodlands Dr 76, #21-231",Yishun,Singapore,Singapore,nikhil.kapoor172@example.com,+65 86668333,2024-11-06,active,,0,No Plan,2025-01-12
+173,Samira Rahman,112 Park Lane,Shah Alam,Selangor,Malaysia,samira.rahman173@example.com,+60 11-7299870,2024-07-20,active,,1,Prime Monthly,
+174,Ishaan Iyer,45 Jalan Ampang,Petaling Jaya,Selangor,Malaysia,ishaan.iyer174@example.com,+60 18-6280509,2024-04-05,locked,Suspicious payment activity,0,No Plan,2025-11-12
+175,Samantha Pereira,"Blk 17, Jurong West St 20, #41-094",Yishun,Singapore,Singapore,samantha.pereira175@example.com,+65 96599609,2024-03-27,closed,Fraud prevention closure,0,No Plan,2026-01-02
+176,Cheryl Chong,"Blk 346, Woodlands Dr 32, #05-976",Woodlands,Singapore,Singapore,cheryl.chong176@example.com,+65 81186939,2023-09-30,locked,Multiple failed login attempts,0,No Plan,2023-11-19
+177,Charlotte Bauer,122 Jalan Ampang,Pune,Maharashtra,India,charlotte.bauer177@example.com,+91 6560766977,2024-02-19,active,,0,No Plan,2024-11-06
+178,Layla Karim,133 King's Road,Mumbai,Maharashtra,India,layla.karim178@example.com,+91 9996636540,2025-10-17,active,,1,Prime Quarterly,
+179,Hui Min Chen,"Blk 76, Woodlands Dr 85, #20-634",Tampines,Singapore,Singapore,hui.chen179@example.com,+65 85753075,2025-08-10,active,,1,Prime Quarterly,
+180,Ashley Tan,"Blk 560, Woodlands Dr 40, #28-872",Bukit Batok,Singapore,Singapore,ashley.tan180@example.com,+65 89714901,2022-02-08,active,,0,No Plan,2025-03-29
+181,Jing Wen Lim,127 Unter den Linden,Munich,Bavaria,Germany,jing.lim181@example.com,+49 1548424510,2023-11-04,active,,1,Prime Monthly,
+182,Grace Teo,146 Brigade Road,Bengaluru,Karnataka,India,grace.teo182@example.com,+91 9599861180,2025-04-30,active,,0,No Plan,2026-01-23
+183,Charlotte Weber,96 High Street,Abu Dhabi,Abu Dhabi,United Arab Emirates,charlotte.weber183@example.com,+971 58 6458861,2024-11-25,inactive,User requested deactivation,0,No Plan,2025-03-16
+184,Yan Ling Lim,171 Anna Salai,Chennai,Tamil Nadu,India,yan.lim184@example.com,+91 6667227226,2025-01-22,locked,Password reset required after unusual activity,0,No Plan,2025-02-04
+185,Sophie Dubois,"Blk 613, Woodlands Dr 47, #37-504",Tampines,Singapore,Singapore,sophie.dubois185@example.com,+65 95074242,2024-01-30,active,,1,Prime Monthly,
+186,Oliver Weber,112 Anna Salai,Mumbai,Maharashtra,India,oliver.weber186@example.com,+91 6100115426,2025-02-19,active,,1,Prime Quarterly,
+187,Priya Gupta,8 Church Street,Mumbai,Maharashtra,India,priya.gupta187@example.com,+91 9811039814,2022-07-24,active,,1,Prime Monthly,
+188,Priya Reddy,"Blk 690, Bukit Batok St 57, #36-305",Bedok,Singapore,Singapore,priya.reddy188@example.com,+65 81687870,2023-08-25,active,,0,No Plan,2024-08-22
+189,Vanessa Teo,124 MG Road,Pune,Maharashtra,India,vanessa.teo189@example.com,+91 6549199698,2024-05-04,locked,Multiple failed login attempts,0,No Plan,2024-05-12
+190,George Brown,16 MG Road,Chennai,Tamil Nadu,India,george.brown190@example.com,+91 6872222490,2023-12-18,active,,0,No Plan,2024-09-17
+191,Aqeel Qureshi,106 Anna Salai,Mumbai,Maharashtra,India,aqeel.qureshi191@example.com,+91 8849447772,2022-03-31,active,,1,Prime Annual,
+192,Sophia Martin,"Blk 735, Bukit Batok St 21, #25-370",Bedok,Singapore,Singapore,sophia.martin192@example.com,+65 93416300,2022-11-14,active,,0,No Plan,2022-12-25
+193,Sana Karim,184 Park Lane,Berlin,Berlin,Germany,sana.karim193@example.com,+49 1583090000,2022-07-02,active,,0,No Plan,2023-11-11
+194,Liam Smith,133 Rue Lafayette,Pune,Maharashtra,India,liam.smith194@example.com,+91 6637297069,2022-01-16,active,,1,Prime Annual,
+195,Nikhil Reddy,235 Park Lane,Mumbai,Maharashtra,India,nikhil.reddy195@example.com,+91 7549196772,2022-05-27,active,,0,No Plan,2025-03-18
+196,Felicia Pereira,"Blk 573, Bedok North Rd 8, #19-217",Jurong East,Singapore,Singapore,felicia.pereira196@example.com,+65 88033083,2025-10-25,active,,1,Prime Monthly,
+197,Jun Jie Liu,147 Anna Salai,Chennai,Tamil Nadu,India,jun.liu197@example.com,+91 9898229183,2025-12-20,inactive,User requested deactivation,0,No Plan,2026-02-28
+198,Wei Ming Huang,111 Park Lane,Munich,Bavaria,Germany,wei.huang198@example.com,+49 1594324958,2024-08-01,active,,0,No Plan,2025-06-25
+199,Neha Jain,207 Sheikh Zayed Road,Kuala Lumpur,Kuala Lumpur,Malaysia,neha.jain199@example.com,+60 14-4017313,2025-05-08,suspended,Terms of service violation review,0,No Plan,2025-08-10
+200,Jun Jie Chua,194 Brigade Road,Marseille,Provence-Alpes-Côte d'Azur,France,jun.chua200@example.com,+33 6 29526191,2022-06-05,active,,0,No Plan,2024-12-06
