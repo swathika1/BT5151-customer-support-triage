@@ -26,6 +26,7 @@ def normalize_column_name(name: str) -> str:
         "registered_email": "registered_email",
         "registered_phone_number": "registered_phone_number",
         "prime_subscription_flag": "prime_subscription_flag",
+        "prime_subscription_flag_1_0": "prime_subscription_flag",
         "order_summary_json": "order_summary",
         "damage_1_0": "damage_flag",
         "applied_for_return_1_0": "applied_for_return",
@@ -396,4 +397,3 @@ def build_user_summary(profile: dict, orders: list[dict]) -> dict:
         "order_count": len(orders),
         "recent_orders": recent_orders,
     }
-
