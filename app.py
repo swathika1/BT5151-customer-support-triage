@@ -1,7 +1,10 @@
+import argparse
+import html
 import os
 import json
 import pickle
 import re
+import socket
 import sqlite3
 import warnings
 from pathlib import Path
@@ -54,10 +57,6 @@ import pandas as pd
 import numpy as np
 
 # UI
-from http.server import HTTPServer, BaseHTTPRequestHandler
-import json as json_module
-from urllib.parse import urlparse, parse_qs
-
 # ML
 from sklearn.model_selection import train_test_split, GridSearchCV
 from sklearn.feature_extraction.text import TfidfVectorizer
@@ -1526,1543 +1525,1738 @@ def classify_query(query, customer_id: str):
     }, state.confidence_score
 
 
-def render_support_ui() -> str:
-    """Render the customer-facing chat UI."""
-    return """<!DOCTYPE html>
-<html>
-<head>
-    <title>Support Chat</title>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <style>
-        :root {
-            --bg: #f3f7fb;
-            --panel: rgba(255, 255, 255, 0.96);
-            --panel-soft: #f8fbff;
-            --border: #d8e4ef;
-            --text: #102033;
-            --muted: #607286;
-            --accent: #0f766e;
-            --accent-strong: #115e59;
-            --accent-soft: #dff7f3;
-            --user-bubble: #0f766e;
-            --assistant-bubble: #ffffff;
-            --danger: #b42318;
-            --shadow: 0 18px 48px rgba(15, 23, 42, 0.12);
-        }
-        * { box-sizing: border-box; }
-        body {
-            margin: 0;
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-            color: var(--text);
-            background:
-                radial-gradient(circle at top left, rgba(20, 184, 166, 0.18), transparent 28%),
-                radial-gradient(circle at top right, rgba(14, 116, 144, 0.16), transparent 24%),
-                linear-gradient(180deg, #eef6fb 0%, #f8fbfd 100%);
-            min-height: 100vh;
-        }
-        .page {
-            max-width: 1380px;
-            margin: 0 auto;
-            padding: 28px 18px 32px;
-        }
-        .topbar {
-            display: flex;
-            justify-content: space-between;
-            align-items: flex-start;
-            gap: 20px;
-            margin-bottom: 20px;
-        }
-        .hero h1 {
-            margin: 0 0 8px;
-            font-size: 34px;
-            letter-spacing: -0.03em;
-        }
-        .hero p {
-            margin: 0;
-            color: var(--muted);
-            line-height: 1.6;
-            max-width: 760px;
-        }
-        .hero-note {
-            margin-top: 10px;
-            font-size: 13px;
-            color: #0f766e;
-            font-weight: 600;
-        }
-        .top-actions {
-            display: flex;
-            gap: 10px;
-            flex-wrap: wrap;
-        }
-        .link-pill {
-            display: inline-flex;
-            align-items: center;
-            gap: 8px;
-            padding: 12px 16px;
-            border-radius: 999px;
-            border: 1px solid var(--border);
-            background: white;
-            color: var(--text);
-            text-decoration: none;
-            font-weight: 700;
-        }
-        .layout {
-            display: grid;
-            grid-template-columns: minmax(0, 1.25fr) minmax(320px, 0.75fr);
-            gap: 18px;
-            align-items: start;
-        }
-        .panel {
-            background: var(--panel);
-            border-radius: 24px;
-            border: 1px solid rgba(255, 255, 255, 0.7);
-            box-shadow: var(--shadow);
-        }
-        .chat-shell {
-            display: flex;
-            flex-direction: column;
-            min-height: 78vh;
-            overflow: hidden;
-        }
-        .chat-header {
-            padding: 22px 22px 16px;
-            border-bottom: 1px solid var(--border);
-            display: flex;
-            justify-content: space-between;
-            gap: 16px;
-            align-items: end;
-            flex-wrap: wrap;
-        }
-        .chat-header h2 {
-            margin: 0 0 4px;
-            font-size: 18px;
-        }
-        .chat-header p {
-            margin: 0;
-            color: var(--muted);
-            font-size: 14px;
-        }
-        .selector-group {
-            display: flex;
-            flex-direction: column;
-            gap: 8px;
-            min-width: 280px;
-        }
-        .selector-group label {
-            font-size: 12px;
-            text-transform: uppercase;
-            letter-spacing: 0.08em;
-            color: var(--muted);
-            font-weight: 700;
-        }
-        select, textarea {
-            width: 100%;
-            border: 1px solid var(--border);
-            border-radius: 16px;
-            font: inherit;
-            background: white;
-            color: var(--text);
-        }
-        select {
-            padding: 12px 14px;
-            font-weight: 600;
-        }
-        .chat-history {
-            flex: 1;
-            padding: 22px;
-            overflow-y: auto;
-            background:
-                linear-gradient(180deg, rgba(255,255,255,0.9) 0%, rgba(244,250,255,0.96) 100%);
-            display: flex;
-            flex-direction: column;
-            gap: 18px;
-        }
-        .turn-group {
-            display: flex;
-            flex-direction: column;
-            gap: 10px;
-        }
-        .bubble-row {
-            display: flex;
-        }
-        .bubble-row.user {
-            justify-content: flex-end;
-        }
-        .bubble-row.assistant {
-            justify-content: flex-start;
-        }
-        .bubble {
-            max-width: min(78%, 720px);
-            border-radius: 20px;
-            padding: 14px 16px;
-            box-shadow: 0 10px 24px rgba(15, 23, 42, 0.08);
-        }
-        .bubble.user {
-            background: var(--user-bubble);
-            color: white;
-            border-bottom-right-radius: 8px;
-        }
-        .bubble.assistant {
-            background: var(--assistant-bubble);
-            border: 1px solid var(--border);
-            border-bottom-left-radius: 8px;
-        }
-        .bubble-label {
-            font-size: 11px;
-            text-transform: uppercase;
-            letter-spacing: 0.08em;
-            font-weight: 700;
-            opacity: 0.82;
-            margin-bottom: 8px;
-        }
-        .bubble-copy {
-            white-space: pre-wrap;
-            line-height: 1.6;
-            margin: 0;
-        }
-        .assistant-meta {
-            margin-top: 12px;
-            display: flex;
-            flex-wrap: wrap;
-            gap: 8px;
-        }
-        .pill {
-            display: inline-flex;
-            align-items: center;
-            padding: 6px 10px;
-            border-radius: 999px;
-            background: var(--panel-soft);
-            border: 1px solid var(--border);
-            font-size: 12px;
-            font-weight: 700;
-            color: var(--accent-strong);
-        }
-        .empty-state {
-            margin: auto 0;
-            text-align: center;
-            color: var(--muted);
-            padding: 28px;
-        }
-        .composer {
-            padding: 18px 22px 22px;
-            border-top: 1px solid var(--border);
-            background: white;
-        }
-        .composer textarea {
-            min-height: 92px;
-            resize: vertical;
-            padding: 14px 16px;
-            line-height: 1.5;
-        }
-        .composer-actions {
-            display: flex;
-            justify-content: space-between;
-            gap: 12px;
-            align-items: center;
-            margin-top: 12px;
-            flex-wrap: wrap;
-        }
-        .suggestions {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 8px;
-        }
-        .suggestion-btn {
-            border: 1px solid var(--border);
-            background: var(--panel-soft);
-            color: var(--accent-strong);
-            border-radius: 999px;
-            padding: 8px 12px;
-            font-weight: 600;
-            cursor: pointer;
-        }
-        .send-btn {
-            border: none;
-            background: linear-gradient(135deg, #0f766e, #115e59);
-            color: white;
-            border-radius: 14px;
-            padding: 13px 18px;
-            font-weight: 700;
-            cursor: pointer;
-        }
-        .send-btn:disabled {
-            opacity: 0.6;
-            cursor: not-allowed;
-        }
-        .status-line {
-            color: var(--muted);
-            font-size: 13px;
-        }
-        .side-stack {
-            display: grid;
-            gap: 18px;
-        }
-        .side-card {
-            padding: 20px;
-        }
-        .side-card h3 {
-            margin: 0 0 14px;
-            font-size: 17px;
-        }
-        .kv-grid {
-            display: grid;
-            gap: 10px;
-        }
-        .kv {
-            display: grid;
-            grid-template-columns: 120px 1fr;
-            gap: 10px;
-            align-items: start;
-            font-size: 14px;
-        }
-        .kv span {
-            color: var(--muted);
-            font-weight: 600;
-        }
-        .recent-orders {
-            display: grid;
-            gap: 10px;
-            margin-top: 16px;
-        }
-        .order-card {
-            border: 1px solid var(--border);
-            background: var(--panel-soft);
-            border-radius: 16px;
-            padding: 12px 14px;
-        }
-        .order-card strong {
-            display: block;
-            margin-bottom: 6px;
-        }
-        .error-banner {
-            display: none;
-            margin-bottom: 14px;
-            padding: 12px 14px;
-            border-radius: 16px;
-            color: var(--danger);
-            background: #fef3f2;
-            border: 1px solid #fecdca;
-        }
-        .error-banner.active {
-            display: block;
-        }
-        @media (max-width: 1080px) {
-            .layout {
-                grid-template-columns: 1fr;
-            }
-            .chat-shell {
-                min-height: auto;
-            }
-        }
-        @media (max-width: 720px) {
-            .topbar, .chat-header, .composer-actions {
-                flex-direction: column;
-                align-items: stretch;
-            }
-            .bubble {
-                max-width: 92%;
-            }
-            .kv {
-                grid-template-columns: 1fr;
-            }
-        }
-    </style>
-</head>
-<body>
-    <div class="page">
-        <div class="topbar">
-            <div class="hero">
-                <h1>Customer Support Chat</h1>
-                <p>Chat as one selected user at a time. Every reply is restricted to that customer's account and structured e-commerce order data, and the agent now grounds delivery, refund, return, seller, and transporter answers from the `ecommerce_data/` datasets.</p>
-                <div class="hero-note">Current context is limited to the selected customer only.</div>
+def parse_runtime_args() -> argparse.Namespace:
+    """Parse runtime options for launching the support UI."""
+    parser = argparse.ArgumentParser(description="Run the customer support triage app.")
+    parser.add_argument(
+        "--host",
+        default=os.getenv("HOST", "0.0.0.0"),
+        help="Host interface to bind the Gradio app to.",
+    )
+    parser.add_argument(
+        "--gradio-port",
+        type=int,
+        default=int(os.getenv("GRADIO_PORT", "7861")),
+        help="Port used by the Gradio app.",
+    )
+    return parser.parse_args()
+
+
+def resolve_gradio_port(host: str, preferred_port: int, max_attempts: int = 20) -> int:
+    """Find an available local port for Gradio, starting from the preferred port."""
+    host = "127.0.0.1" if host in {"0.0.0.0", ""} else host
+    for offset in range(max_attempts):
+        candidate = preferred_port + offset
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            try:
+                sock.bind((host, candidate))
+            except OSError:
+                continue
+        return candidate
+    raise OSError(
+        f"Could not find an available port in range {preferred_port}-{preferred_port + max_attempts - 1}."
+    )
+
+
+def _display_text(value: Any, default: str = "") -> str:
+    text = "" if value is None else str(value).strip()
+    return text or default
+
+
+def _escape_text(value: Any, default: str = "") -> str:
+    return html.escape(_display_text(value, default))
+
+
+def _format_timestamp(value: Any) -> str:
+    raw = _display_text(value)
+    if not raw:
+        return "Unknown time"
+    try:
+        parsed = datetime.fromisoformat(raw)
+    except ValueError:
+        return raw
+    return parsed.strftime("%d %b %Y, %I:%M %p")
+
+
+def _pretty_key(value: str) -> str:
+    words = value.replace("_", " ").strip().split()
+    return " ".join(word.capitalize() for word in words) or "Value"
+
+
+def _format_trace_value(value: Any) -> str:
+    if value in (None, ""):
+        return "n/a"
+    if isinstance(value, float):
+        return f"{value:.4f}"
+    if isinstance(value, (dict, list)):
+        return json.dumps(value, ensure_ascii=False)
+    return str(value)
+
+
+def render_gradio_banner(message: str = "", tone: str = "error") -> str:
+    message = _display_text(message)
+    if not message:
+        return ""
+    tone_class = {
+        "error": "ui-banner--error",
+        "success": "ui-banner--success",
+        "info": "ui-banner--info",
+    }.get(tone, "ui-banner--info")
+    return f'<div class="ui-banner {tone_class}">{_escape_text(message)}</div>'
+
+
+def render_support_hero_html() -> str:
+    return """
+    <section class="hero-panel hero-panel--support">
+        <div class="hero-panel__copy">
+            <h1>Customer Support Chat</h1>
+            <p>Chat as one selected user at a time. Every reply is restricted to that customer's account and structured e-commerce order data, and the agent grounds delivery, refund, return, seller, and transporter answers from the <code>ecommerce_data/</code> datasets.</p>
+            <div class="hero-panel__note">Current context is limited to the selected customer only.</div>
+        </div>
+    </section>
+    """
+
+
+def render_support_status_html(message: str) -> str:
+    return f'<div class="support-status-line">{_escape_text(message)}</div>'
+
+
+def render_support_user_summary_html(user: Optional[dict]) -> str:
+    if not user:
+        return """
+        <div class="support-kv-grid">
+            <div class="support-kv"><span>Status</span><div>No user selected.</div></div>
+        </div>
+        """
+
+    rows = [
+        ("Customer", f"{_display_text(user.get('name'), 'n/a')} (#{_display_text(user.get('customer_id'), 'n/a')})"),
+        ("Account", _display_text(user.get("account_status"), "n/a")),
+        ("Email", _display_text(user.get("registered_email"), "n/a")),
+        ("Phone", _display_text(user.get("registered_phone_number"), "n/a")),
+        ("Plan", _display_text(user.get("subscription_plan_name"), "n/a")),
+        ("Prime", "Yes" if user.get("prime_subscription_flag") else "No"),
+        ("Orders", str(user.get("order_count", 0) or 0)),
+    ]
+    rows_html = "".join(
+        f'<div class="support-kv"><span>{_escape_text(label)}</span><div>{_escape_text(value)}</div></div>'
+        for label, value in rows
+    )
+    return f'<div class="support-kv-grid">{rows_html}</div>'
+
+
+def render_support_recent_orders_html(orders: list[dict]) -> str:
+    if not orders:
+        return '<div class="support-order-card">No orders found for this customer.</div>'
+
+    cards = []
+    for order in orders:
+        amount = float(order.get("order_amount", 0.0) or 0.0)
+        cards.append(
+            f"""
+            <article class="support-order-card">
+                <strong>Order #{_escape_text(order.get('order_id'), 'n/a')}</strong>
+                <div>{_escape_text(order.get('order_status'), 'n/a')} · {_escape_text(order.get('delivery_status'), 'n/a')}</div>
+                <div>{_escape_text(order.get('order_currency'))} {amount:.2f}</div>
+                <div>{_escape_text(order.get('order_date'), 'n/a')}</div>
+            </article>
+            """
+        )
+    return "".join(cards)
+
+
+def render_support_chat_history_html(history: list[dict]) -> str:
+    if not history:
+        return """
+        <div class="support-chat-scroll">
+            <div class="support-empty-state">No previous chat history for this customer yet. Start the conversation below.</div>
+        </div>
+        """
+
+    turns = []
+    for turn in history:
+        meta_pills = [
+            _display_text(turn.get("predicted_label"), "n/a"),
+            f"{float(turn.get('confidence_score', 0.0) or 0.0) * 100:.1f}% confidence",
+            _display_text(turn.get("route_decision"), "n/a"),
+        ]
+        if turn.get("needs_more_context"):
+            meta_pills.append("Needs more context")
+        meta_pills.append(_format_timestamp(turn.get("timestamp")))
+        pills_html = "".join(
+            f'<span class="support-pill">{_escape_text(pill)}</span>'
+            for pill in meta_pills
+        )
+        turns.append(
+            f"""
+            <div class="support-turn-group">
+                <div class="support-bubble-row support-bubble-row--user">
+                    <div class="support-bubble support-bubble--user">
+                        <div class="support-bubble-label">Customer</div>
+                        <p class="support-bubble-copy">{_escape_text(turn.get('raw_message'))}</p>
+                    </div>
+                </div>
+                <div class="support-bubble-row support-bubble-row--assistant">
+                    <div class="support-bubble support-bubble--assistant">
+                        <div class="support-bubble-label">Assistant</div>
+                        <p class="support-bubble-copy">{_escape_text(turn.get('response'))}</p>
+                        <div class="support-meta-row">{pills_html}</div>
+                    </div>
+                </div>
             </div>
-            <div class="top-actions">
-                <a class="link-pill" href="/admin">Open Admin UI</a>
+            """
+        )
+    return f'<div class="support-chat-scroll">{"".join(turns)}</div>'
+
+
+def build_support_view_outputs(
+    customer_id: str,
+    *,
+    status_override: Optional[str] = None,
+    error_message: str = "",
+) -> tuple[str, str, str, str, str]:
+    customer_id = _display_text(customer_id)
+    if not customer_id:
+        return (
+            render_support_chat_history_html([]),
+            render_support_user_summary_html(None),
+            render_support_recent_orders_html([]),
+            render_support_status_html(status_override or "No customer records were found."),
+            render_gradio_banner(error_message, tone="error"),
+        )
+
+    try:
+        payload = fetch_user_chat_payload(customer_id, limit=100)
+    except Exception as exc:
+        return (
+            render_support_chat_history_html([]),
+            render_support_user_summary_html(None),
+            render_support_recent_orders_html([]),
+            render_support_status_html(status_override or "Unable to load customer chat."),
+            render_gradio_banner(error_message or str(exc), tone="error"),
+        )
+
+    user = payload.get("user") or {}
+    return (
+        render_support_chat_history_html(payload.get("history") or []),
+        render_support_user_summary_html(user),
+        render_support_recent_orders_html(user.get("recent_orders") or []),
+        render_support_status_html(
+            status_override
+            or f"Chatting as {_display_text(user.get('name'), 'Customer')} (#{_display_text(user.get('customer_id'), customer_id)})"
+        ),
+        render_gradio_banner(error_message, tone="error"),
+    )
+
+
+def initialize_support_tab(gr_module):
+    try:
+        users = list_chat_users()
+    except Exception as exc:
+        return (
+            gr_module.update(choices=[], value=None),
+            render_support_chat_history_html([]),
+            render_support_user_summary_html(None),
+            render_support_recent_orders_html([]),
+            render_support_status_html("Unable to load users."),
+            render_gradio_banner(str(exc), tone="error"),
+        )
+
+    if not users:
+        return (
+            gr_module.update(choices=[], value=None),
+            render_support_chat_history_html([]),
+            render_support_user_summary_html(None),
+            render_support_recent_orders_html([]),
+            render_support_status_html("No customer records were found."),
+            "",
+        )
+
+    choices = [(user["label"], user["customer_id"]) for user in users]
+    selected_id = users[0]["customer_id"]
+    chat_html, summary_html, orders_html, status_html, error_html = build_support_view_outputs(selected_id)
+    return (
+        gr_module.update(choices=choices, value=selected_id),
+        chat_html,
+        summary_html,
+        orders_html,
+        status_html,
+        error_html,
+    )
+
+
+def handle_support_customer_change(customer_id: str):
+    return build_support_view_outputs(customer_id)
+
+
+def handle_support_message_submit(customer_id: str, query: str):
+    query = _display_text(query)
+    customer_id = _display_text(customer_id)
+
+    if not customer_id:
+        chat_html, summary_html, orders_html, status_html, error_html = build_support_view_outputs(
+            customer_id,
+            status_override="Please choose a customer first.",
+            error_message="Please choose a customer first.",
+        )
+        return query, chat_html, summary_html, orders_html, status_html, error_html
+
+    if not query:
+        chat_html, summary_html, orders_html, status_html, error_html = build_support_view_outputs(
+            customer_id,
+            error_message="Please enter a message before sending.",
+        )
+        return query, chat_html, summary_html, orders_html, status_html, error_html
+
+    try:
+        result, _confidence = classify_query(query, customer_id)
+        if "error" in result:
+            raise ValueError(result["error"])
+    except Exception as exc:
+        chat_html, summary_html, orders_html, status_html, error_html = build_support_view_outputs(
+            customer_id,
+            status_override="Unable to send message.",
+            error_message=str(exc),
+        )
+        return query, chat_html, summary_html, orders_html, status_html, error_html
+
+    chat_html, summary_html, orders_html, status_html, error_html = build_support_view_outputs(customer_id)
+    return "", chat_html, summary_html, orders_html, status_html, error_html
+
+
+def render_admin_hero_html() -> str:
+    return """
+    <section class="hero-panel hero-panel--admin">
+        <div class="hero-panel__copy">
+            <h1>Admin Pipeline Dashboard</h1>
+            <p>Review every customer interaction end to end: language handling, model classification, confidence-based routing, response generation, and the feedback loop that helps improve retraining data.</p>
+            <div class="hero-panel__note">Switch between the interaction history and review editor below to inspect traces and save feedback.</div>
+        </div>
+    </section>
+    """
+
+
+def render_admin_last_updated_html(timestamp: Optional[datetime] = None) -> str:
+    timestamp = timestamp or datetime.now()
+    return (
+        '<div class="admin-last-updated">'
+        f'Last refreshed: {_escape_text(timestamp.strftime("%d %b %Y, %I:%M:%S %p"))}'
+        '</div>'
+    )
+
+
+def render_admin_summary_html(summary: dict) -> str:
+    metrics = [
+        (
+            "Total interactions",
+            int(summary.get("total_interactions", 0) or 0),
+            "All logged requests across the serving pipeline",
+        ),
+        (
+            "Flagged responses",
+            int(summary.get("flagged_interactions", 0) or 0),
+            "Admin-reviewed cases captured for feedback",
+        ),
+        (
+            "Auto replies",
+            int(summary.get("auto_replies", 0) or 0),
+            "High-confidence responses sent automatically",
+        ),
+        (
+            "Clarify + escalate",
+            int(summary.get("clarifications", 0) or 0) + int(summary.get("escalations", 0) or 0),
+            "Cases needing extra detail or human review",
+        ),
+    ]
+    cards = "".join(
+        f"""
+        <article class="admin-metric">
+            <div class="admin-metric__label">{_escape_text(label)}</div>
+            <div class="admin-metric__value">{value}</div>
+            <div class="admin-metric__subtitle">{_escape_text(subtitle)}</div>
+        </article>
+        """
+        for label, value, subtitle in metrics
+    )
+    return f'<div class="admin-summary-grid">{cards}</div>'
+
+
+def render_admin_pipeline_coverage_html() -> str:
+    steps = [
+        (
+            "1",
+            "Language handling",
+            "See detected language, whether translation was skipped or invoked, and the English text passed into the classifier.",
+        ),
+        (
+            "2",
+            "Classification model",
+            "Inspect the predicted category, confidence score, and top class probabilities for each interaction.",
+        ),
+        (
+            "3",
+            "Decision routing",
+            "Review how thresholds drove AUTO_REPLY, CLARIFY, or ESCALATE, plus the reason used to pick the response pattern.",
+        ),
+        (
+            "4",
+            "Admin feedback loop",
+            "Flag poor responses, add notes, and store suggested labels so future retraining can learn from reviewed cases.",
+        ),
+    ]
+    rows = "".join(
+        f"""
+        <div class="admin-pipeline-step">
+            <div class="admin-step-badge">{_escape_text(index)}</div>
+            <div class="admin-step-copy">
+                <strong>{_escape_text(title)}</strong>
+                <span>{_escape_text(copy)}</span>
             </div>
         </div>
+        """
+        for index, title, copy in steps
+    )
+    return f'<div class="admin-pipeline-flow">{rows}</div>'
 
-        <div class="error-banner" id="errorBanner"></div>
 
-        <div class="layout">
-            <section class="panel chat-shell">
-                <div class="chat-header">
-                    <div>
-                        <h2>Scoped Conversation</h2>
-                        <p>Previous chat turns for the selected customer are shown below.</p>
-                    </div>
-                    <div class="selector-group">
-                        <label for="currentUser">Current User</label>
-                        <select id="currentUser"></select>
-                    </div>
+def render_admin_probability_html(probabilities: dict) -> str:
+    items = sorted((probabilities or {}).items(), key=lambda entry: entry[1], reverse=True)[:4]
+    if not items:
+        return '<div class="admin-subtle">No probability breakdown stored.</div>'
+
+    rows = []
+    for label, score in items:
+        score = float(score or 0.0)
+        rows.append(
+            f"""
+            <div class="admin-prob-row">
+                <strong>{_escape_text(label)}</strong>
+                <div class="admin-prob-bar"><div class="admin-prob-fill" style="width:{max(0.0, min(100.0, score * 100)):.1f}%"></div></div>
+                <span>{score * 100:.1f}%</span>
+            </div>
+            """
+        )
+    return f'<div class="admin-probability-list">{"".join(rows)}</div>'
+
+
+def render_admin_trace_html(trace: list[dict]) -> str:
+    if not trace:
+        return '<div class="admin-subtle">No trace data stored for this interaction.</div>'
+
+    entries = []
+    for index, entry in enumerate(trace, start=1):
+        details = entry.get("details") or {}
+        details_html = ""
+        if details:
+            rows = "".join(
+                f"""
+                <div class="admin-trace-kv">
+                    <span>{_escape_text(_pretty_key(key))}</span>
+                    <code>{_escape_text(_format_trace_value(value))}</code>
                 </div>
+                """
+                for key, value in details.items()
+            )
+            details_html = f'<div class="admin-trace-details">{rows}</div>'
 
-                <div class="chat-history" id="chatHistory">
-                    <div class="empty-state">Loading users and chat history...</div>
-                </div>
+        entries.append(
+            f"""
+            <article class="admin-trace-entry">
+                <h4>{index}. {_escape_text(_pretty_key(_display_text(entry.get('stage'), 'stage')))}</h4>
+                <p>{_escape_text(entry.get('summary'))}</p>
+                {details_html}
+            </article>
+            """
+        )
+    return f'<div class="admin-trace-list">{"".join(entries)}</div>'
 
-                <div class="composer">
-                    <textarea id="queryInput" placeholder="Ask a question about the selected customer's account, order, refund, payment, or subscription."></textarea>
-                    <div class="composer-actions">
-                        <div class="suggestions">
-                            <button class="suggestion-btn" type="button" onclick="setSuggestion('Where is my order?')">Where is my order?</button>
-                            <button class="suggestion-btn" type="button" onclick="setSuggestion('I want a refund')">I want a refund</button>
-                            <button class="suggestion-btn" type="button" onclick="setSuggestion('Can you check my subscription?')">Check subscription</button>
-                        </div>
-                        <div style="display:flex; gap:12px; align-items:center; flex-wrap:wrap;">
-                            <span class="status-line" id="composerStatus">Choose a customer to start chatting.</span>
-                            <button class="send-btn" type="button" id="sendBtn" onclick="sendMessage()">Send message</button>
-                        </div>
-                    </div>
+
+def render_admin_feedback_badge_html(feedback: dict) -> str:
+    if feedback.get("flagged"):
+        return '<span class="admin-pill admin-pill--flagged">Flagged for retraining</span>'
+    return '<span class="admin-pill admin-pill--reviewed">Awaiting or cleared</span>'
+
+
+def render_admin_feedback_summary_html(feedback: dict) -> str:
+    updated_at = feedback.get("updated_at")
+    rows = [
+        ("Current state", "Flagged for retraining" if feedback.get("flagged") else "Awaiting or cleared"),
+        ("Suggested category", _display_text(feedback.get("suggested_category"), "Keep predicted category")),
+        ("Admin note", _display_text(feedback.get("reason"), "No admin note saved yet.")),
+        ("Last update", _format_timestamp(updated_at) if updated_at else "No admin feedback saved yet."),
+    ]
+    rows_html = "".join(
+        f'<div class="admin-trace-kv"><span>{_escape_text(label)}</span><code>{_escape_text(value)}</code></div>'
+        for label, value in rows
+    )
+    return f'<div class="admin-feedback-summary">{rows_html}</div>'
+
+
+def render_admin_interaction_card_html(item: dict) -> str:
+    feedback = item.get("feedback") or {}
+    translated_message = item.get("translated_message") or item.get("raw_message") or ""
+    translated_note = (
+        "Translation changed the text before classification."
+        if translated_message != (item.get("raw_message") or "")
+        else "Original text was used directly for classification."
+    )
+    generation = item.get("response_generation") or {}
+    route_class = _display_text(item.get("route_decision"), "AUTO_REPLY").lower()
+    customer_line = _display_text(item.get("customer_name")) or f"Customer #{_display_text(item.get('customer_id'), 'n/a')}"
+    return f"""
+    <article class="admin-interaction-card">
+        <div class="admin-interaction-head">
+            <div>
+                <div class="admin-interaction-title">
+                    <h3>Interaction #{_escape_text(item.get('id'), 'n/a')}</h3>
+                    <span class="admin-pill admin-pill--route admin-pill--{_escape_text(route_class)}">{_escape_text(item.get('route_decision'), 'n/a')}</span>
+                    {render_admin_feedback_badge_html(feedback)}
                 </div>
+                <div class="admin-subtle">{_escape_text(customer_line)} · {_escape_text(_format_timestamp(item.get('timestamp')))}</div>
+            </div>
+            <div class="admin-subtle">Language: {_escape_text(item.get('detected_language'), 'en')}</div>
+        </div>
+
+        <div class="admin-message-grid">
+            <section class="admin-box">
+                <div class="admin-box-label">Original customer message</div>
+                <p class="admin-box-copy">{_escape_text(item.get('raw_message'))}</p>
             </section>
-
-            <aside class="side-stack">
-                <section class="panel side-card">
-                    <h3>Selected User</h3>
-                    <div class="kv-grid" id="userSummary">
-                        <div class="kv"><span>Status</span><div>Loading...</div></div>
-                    </div>
-                    <div class="recent-orders" id="recentOrders"></div>
-                    <div style="margin-top:16px; color: var(--muted); font-size: 13px; line-height: 1.6;">
-                        Replies in this chat are limited to the selected user's account and order records. Internal JSON context stays hidden from the customer view.
-                    </div>
-                </section>
-            </aside>
-        </div>
-    </div>
-
-    <script>
-        let users = [];
-        let currentUserId = '';
-
-        function escapeHtml(text) {
-            const div = document.createElement('div');
-            div.textContent = text ?? '';
-            return div.innerHTML;
-        }
-
-        function showError(message) {
-            const banner = document.getElementById('errorBanner');
-            if (!message) {
-                banner.classList.remove('active');
-                banner.textContent = '';
-                return;
-            }
-            banner.classList.add('active');
-            banner.textContent = message;
-        }
-
-        function setSuggestion(text) {
-            document.getElementById('queryInput').value = text;
-            document.getElementById('queryInput').focus();
-        }
-
-        function renderUserSummary(user) {
-            const summary = document.getElementById('userSummary');
-            const recentOrders = document.getElementById('recentOrders');
-
-            if (!user) {
-                summary.innerHTML = '<div class="kv"><span>Status</span><div>No user selected.</div></div>';
-                recentOrders.innerHTML = '';
-                return;
-            }
-
-            summary.innerHTML = `
-                <div class="kv"><span>Customer</span><div>${escapeHtml(user.name)} (#${escapeHtml(user.customer_id)})</div></div>
-                <div class="kv"><span>Account</span><div>${escapeHtml(user.account_status || 'n/a')}</div></div>
-                <div class="kv"><span>Email</span><div>${escapeHtml(user.registered_email || 'n/a')}</div></div>
-                <div class="kv"><span>Phone</span><div>${escapeHtml(user.registered_phone_number || 'n/a')}</div></div>
-                <div class="kv"><span>Plan</span><div>${escapeHtml(user.subscription_plan_name || 'n/a')}</div></div>
-                <div class="kv"><span>Prime</span><div>${user.prime_subscription_flag ? 'Yes' : 'No'}</div></div>
-                <div class="kv"><span>Orders</span><div>${escapeHtml(String(user.order_count || 0))}</div></div>
-            `;
-
-            const orders = user.recent_orders || [];
-            if (!orders.length) {
-                recentOrders.innerHTML = '<div class="order-card">No orders found for this customer.</div>';
-                return;
-            }
-
-            recentOrders.innerHTML = orders.map((order) => `
-                <article class="order-card">
-                    <strong>Order #${escapeHtml(order.order_id)}</strong>
-                    <div>${escapeHtml(order.order_status || 'n/a')} · ${escapeHtml(order.delivery_status || 'n/a')}</div>
-                    <div>${escapeHtml(order.order_currency || '')} ${Number(order.order_amount || 0).toFixed(2)}</div>
-                    <div>${escapeHtml(order.order_date || 'n/a')}</div>
-                </article>
-            `).join('');
-        }
-
-        function renderHistory(history) {
-            const container = document.getElementById('chatHistory');
-            if (!history.length) {
-                container.innerHTML = '<div class="empty-state">No previous chat history for this customer yet. Start the conversation below.</div>';
-                return;
-            }
-
-            container.innerHTML = history.map((turn) => `
-                <div class="turn-group">
-                    <div class="bubble-row user">
-                        <div class="bubble user">
-                            <div class="bubble-label">Customer</div>
-                            <p class="bubble-copy">${escapeHtml(turn.raw_message || '')}</p>
-                        </div>
-                    </div>
-                    <div class="bubble-row assistant">
-                        <div class="bubble assistant">
-                            <div class="bubble-label">Assistant</div>
-                            <p class="bubble-copy">${escapeHtml(turn.response || '')}</p>
-                            <div class="assistant-meta">
-                                <span class="pill">${escapeHtml(turn.predicted_label || 'n/a')}</span>
-                                <span class="pill">${((turn.confidence_score || 0) * 100).toFixed(1)}% confidence</span>
-                                <span class="pill">${escapeHtml(turn.route_decision || 'n/a')}</span>
-                                ${turn.needs_more_context ? '<span class="pill">Needs more context</span>' : ''}
-                                <span class="pill">${escapeHtml(turn.timestamp || '')}</span>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            `).join('');
-
-            container.scrollTop = container.scrollHeight;
-        }
-
-        async function loadUsers() {
-            const response = await fetch('/api/users');
-            const payload = await response.json();
-            if (!response.ok || payload.error) {
-                throw new Error(payload.error || 'Unable to load users');
-            }
-
-            users = payload.users || [];
-            const select = document.getElementById('currentUser');
-            select.innerHTML = users.map((user) => `
-                <option value="${escapeHtml(user.customer_id)}">${escapeHtml(user.label)}</option>
-            `).join('');
-
-            if (users.length) {
-                currentUserId = users[0].customer_id;
-                select.value = currentUserId;
-            } else {
-                currentUserId = '';
-            }
-        }
-
-        async function loadChatForSelectedUser() {
-            if (!currentUserId) {
-                renderUserSummary(null);
-                renderHistory([]);
-                document.getElementById('composerStatus').textContent = 'No customer records were found.';
-                return;
-            }
-
-            showError('');
-            const response = await fetch(`/api/user-chat?customer_id=${encodeURIComponent(currentUserId)}&limit=100`);
-            const payload = await response.json();
-            if (!response.ok || payload.error) {
-                throw new Error(payload.error || 'Unable to load customer chat');
-            }
-
-            renderUserSummary(payload.user);
-            renderHistory(payload.history || []);
-            document.getElementById('composerStatus').textContent = `Chatting as ${payload.user.name} (#${payload.user.customer_id})`;
-        }
-
-        async function sendMessage() {
-            const input = document.getElementById('queryInput');
-            const sendBtn = document.getElementById('sendBtn');
-            const query = input.value.trim();
-
-            if (!currentUserId) {
-                showError('Please choose a customer first.');
-                return;
-            }
-            if (!query) {
-                showError('Please enter a message before sending.');
-                return;
-            }
-
-            showError('');
-            sendBtn.disabled = true;
-            document.getElementById('composerStatus').textContent = 'Sending message...';
-
-            try {
-                const response = await fetch('/api/classify', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        customer_id: currentUserId,
-                        query
-                    })
-                });
-
-                const payload = await response.json();
-                if (!response.ok || payload.error) {
-                    throw new Error(payload.error || 'Unable to send message');
-                }
-
-                input.value = '';
-                await loadChatForSelectedUser();
-            } catch (error) {
-                showError(error.message);
-                document.getElementById('composerStatus').textContent = 'Unable to send message.';
-            } finally {
-                sendBtn.disabled = false;
-            }
-        }
-
-        document.getElementById('currentUser').addEventListener('change', async (event) => {
-            currentUserId = event.target.value;
-            try {
-                await loadChatForSelectedUser();
-            } catch (error) {
-                showError(error.message);
-            }
-        });
-
-        document.getElementById('queryInput').addEventListener('keydown', async (event) => {
-            if (event.key === 'Enter' && !event.shiftKey) {
-                event.preventDefault();
-                await sendMessage();
-            }
-        });
-
-        window.addEventListener('load', async () => {
-            try {
-                await loadUsers();
-                await loadChatForSelectedUser();
-            } catch (error) {
-                showError(error.message);
-            }
-        });
-    </script>
-</body>
-</html>"""
-
-
-def render_admin_ui() -> str:
-    """Render the admin dashboard for reviewing pipeline history."""
-    html = """<!DOCTYPE html>
-<html>
-<head>
-    <title>Support Triage Admin</title>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <style>
-        :root {
-            --bg-deep: #07111f;
-            --bg-mid: #10263f;
-            --panel: rgba(255, 255, 255, 0.96);
-            --panel-alt: #f8fafc;
-            --text: #0f172a;
-            --muted: #516074;
-            --border: #d9e2ec;
-            --accent: #0ea5e9;
-            --accent-strong: #0369a1;
-            --warm: #f59e0b;
-            --danger: #dc2626;
-            --success: #15803d;
-            --shadow: 0 24px 60px rgba(8, 15, 35, 0.18);
-        }
-        * { box-sizing: border-box; }
-        body {
-            margin: 0;
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-            color: var(--text);
-            background:
-                radial-gradient(circle at top left, rgba(14, 165, 233, 0.28), transparent 32%),
-                radial-gradient(circle at top right, rgba(245, 158, 11, 0.24), transparent 28%),
-                linear-gradient(140deg, var(--bg-deep) 0%, #0b1730 48%, var(--bg-mid) 100%);
-            min-height: 100vh;
-        }
-        .page {
-            max-width: 1320px;
-            margin: 0 auto;
-            padding: 32px 20px 56px;
-        }
-        .topbar {
-            display: flex;
-            justify-content: space-between;
-            align-items: flex-start;
-            gap: 20px;
-            margin-bottom: 24px;
-        }
-        .hero h1 {
-            margin: 0 0 8px;
-            color: white;
-            font-size: 36px;
-            letter-spacing: -0.03em;
-        }
-        .hero p {
-            margin: 0;
-            color: rgba(226, 232, 240, 0.88);
-            max-width: 760px;
-            line-height: 1.6;
-        }
-        .hero-meta {
-            margin-top: 12px;
-            font-size: 13px;
-            color: rgba(191, 219, 254, 0.88);
-        }
-        .top-actions {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 10px;
-        }
-        .ghost-link, .refresh-btn {
-            border: 1px solid rgba(191, 219, 254, 0.28);
-            background: rgba(255, 255, 255, 0.08);
-            color: white;
-            text-decoration: none;
-            padding: 12px 16px;
-            border-radius: 999px;
-            font-weight: 600;
-            cursor: pointer;
-            backdrop-filter: blur(10px);
-        }
-        .refresh-btn { font-size: 14px; }
-        .dashboard-grid {
-            display: grid;
-            grid-template-columns: 1.25fr 0.75fr;
-            gap: 18px;
-            margin-bottom: 18px;
-        }
-        .card {
-            background: var(--panel);
-            border-radius: 22px;
-            box-shadow: var(--shadow);
-            border: 1px solid rgba(255, 255, 255, 0.4);
-            padding: 22px;
-        }
-        .summary-grid {
-            display: grid;
-            grid-template-columns: repeat(4, minmax(0, 1fr));
-            gap: 14px;
-        }
-        .metric {
-            border-radius: 18px;
-            background: linear-gradient(180deg, #f8fbff 0%, #eef6ff 100%);
-            border: 1px solid #d9ebfb;
-            padding: 16px;
-        }
-        .metric-label {
-            font-size: 12px;
-            text-transform: uppercase;
-            letter-spacing: 0.08em;
-            color: var(--muted);
-            margin-bottom: 10px;
-        }
-        .metric-value {
-            font-size: 30px;
-            font-weight: 700;
-            color: var(--accent-strong);
-        }
-        .metric-subtitle {
-            margin-top: 6px;
-            color: var(--muted);
-            font-size: 13px;
-        }
-        .card h2 {
-            margin: 0 0 14px;
-            font-size: 18px;
-        }
-        .pipeline-flow {
-            display: grid;
-            gap: 12px;
-        }
-        .pipeline-step {
-            display: grid;
-            grid-template-columns: auto 1fr;
-            gap: 12px;
-            align-items: start;
-        }
-        .step-badge {
-            width: 34px;
-            height: 34px;
-            border-radius: 50%;
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            background: linear-gradient(135deg, #0ea5e9, #22d3ee);
-            color: white;
-            font-weight: 700;
-        }
-        .step-copy strong {
-            display: block;
-            margin-bottom: 4px;
-        }
-        .step-copy span {
-            color: var(--muted);
-            line-height: 1.5;
-            font-size: 14px;
-        }
-        .interactions-card {
-            padding: 0;
-            overflow: hidden;
-        }
-        .interactions-header {
-            padding: 22px 22px 14px;
-            border-bottom: 1px solid var(--border);
-            display: flex;
-            justify-content: space-between;
-            gap: 12px;
-            align-items: baseline;
-        }
-        .interactions-header p {
-            margin: 6px 0 0;
-            color: var(--muted);
-            font-size: 14px;
-        }
-        .interactions-list {
-            display: grid;
-            gap: 0;
-        }
-        .interaction-card {
-            padding: 22px;
-            border-top: 1px solid var(--border);
-            background: linear-gradient(180deg, rgba(255,255,255,1) 0%, rgba(248,250,252,1) 100%);
-        }
-        .interaction-card:first-child {
-            border-top: none;
-        }
-        .interaction-head {
-            display: flex;
-            justify-content: space-between;
-            gap: 16px;
-            align-items: flex-start;
-            margin-bottom: 16px;
-        }
-        .interaction-title {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 10px;
-            align-items: center;
-            margin-bottom: 8px;
-        }
-        .interaction-title h3 {
-            margin: 0;
-            font-size: 20px;
-        }
-        .subtle {
-            color: var(--muted);
-            font-size: 13px;
-        }
-        .pill {
-            display: inline-flex;
-            align-items: center;
-            padding: 6px 10px;
-            border-radius: 999px;
-            font-size: 12px;
-            font-weight: 700;
-            letter-spacing: 0.02em;
-        }
-        .pill.route-auto_reply { background: #dbeafe; color: #1d4ed8; }
-        .pill.route-clarify { background: #fef3c7; color: #b45309; }
-        .pill.route-escalate { background: #fee2e2; color: #b91c1c; }
-        .pill.flagged { background: #fee2e2; color: #b91c1c; }
-        .pill.reviewed { background: #dcfce7; color: #166534; }
-        .message-grid {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 16px;
-            margin-bottom: 16px;
-        }
-        .message-box, .analysis-box, .response-box, .feedback-box {
-            background: var(--panel-alt);
-            border: 1px solid var(--border);
-            border-radius: 16px;
-            padding: 16px;
-        }
-        .box-label {
-            font-size: 12px;
-            text-transform: uppercase;
-            letter-spacing: 0.08em;
-            color: var(--muted);
-            margin-bottom: 10px;
-        }
-        .box-copy {
-            margin: 0;
-            white-space: pre-wrap;
-            line-height: 1.6;
-        }
-        .analysis-grid {
-            display: grid;
-            grid-template-columns: repeat(3, minmax(0, 1fr));
-            gap: 12px;
-            margin-bottom: 14px;
-        }
-        .analysis-stat {
-            background: white;
-            border: 1px solid var(--border);
-            border-radius: 14px;
-            padding: 12px;
-        }
-        .analysis-stat strong {
-            display: block;
-            font-size: 20px;
-            margin-top: 4px;
-        }
-        .generation-note {
-            background: #edf7ff;
-            border: 1px solid #cde7fb;
-            padding: 12px;
-            border-radius: 12px;
-            color: #0f3e5d;
-            line-height: 1.5;
-        }
-        .probability-list {
-            display: grid;
-            gap: 8px;
-            margin-top: 14px;
-        }
-        .prob-row {
-            display: grid;
-            grid-template-columns: 90px 1fr 54px;
-            gap: 10px;
-            align-items: center;
-        }
-        .prob-bar {
-            height: 8px;
-            border-radius: 999px;
-            background: #dbeafe;
-            overflow: hidden;
-        }
-        .prob-fill {
-            height: 100%;
-            border-radius: 999px;
-            background: linear-gradient(90deg, #0ea5e9, #22c55e);
-        }
-        .response-box {
-            margin-bottom: 16px;
-        }
-        details.trace {
-            margin-top: 16px;
-            border: 1px solid var(--border);
-            border-radius: 16px;
-            overflow: hidden;
-            background: white;
-        }
-        details.trace summary {
-            cursor: pointer;
-            padding: 16px;
-            font-weight: 700;
-            list-style: none;
-        }
-        details.trace summary::-webkit-details-marker { display: none; }
-        .trace-list {
-            display: grid;
-            gap: 12px;
-            padding: 0 16px 16px;
-        }
-        .trace-entry {
-            border: 1px solid var(--border);
-            border-radius: 14px;
-            padding: 14px;
-            background: #f8fafc;
-        }
-        .trace-entry h4 {
-            margin: 0 0 6px;
-            font-size: 15px;
-        }
-        .trace-entry p {
-            margin: 0 0 10px;
-            color: var(--muted);
-            line-height: 1.5;
-        }
-        .trace-details {
-            display: grid;
-            gap: 8px;
-        }
-        .trace-kv {
-            display: grid;
-            grid-template-columns: 180px 1fr;
-            gap: 10px;
-            font-size: 13px;
-        }
-        .trace-kv span {
-            color: var(--muted);
-        }
-        .trace-kv code {
-            background: white;
-            border: 1px solid #e2e8f0;
-            padding: 6px 8px;
-            border-radius: 10px;
-            white-space: pre-wrap;
-            word-break: break-word;
-        }
-        .feedback-grid {
-            display: grid;
-            grid-template-columns: 1.1fr 0.45fr auto auto;
-            gap: 12px;
-            align-items: start;
-        }
-        .feedback-box textarea, .feedback-box select {
-            width: 100%;
-            padding: 12px;
-            border-radius: 12px;
-            border: 1px solid var(--border);
-            font: inherit;
-            background: white;
-        }
-        .feedback-box textarea {
-            min-height: 96px;
-            resize: vertical;
-        }
-        .btn {
-            border: none;
-            border-radius: 12px;
-            padding: 13px 16px;
-            font-weight: 700;
-            cursor: pointer;
-            min-width: 120px;
-        }
-        .btn-flag {
-            background: linear-gradient(135deg, #ef4444, #dc2626);
-            color: white;
-        }
-        .btn-clear {
-            background: white;
-            border: 1px solid var(--border);
-            color: var(--text);
-        }
-        .feedback-status {
-            margin-top: 12px;
-            color: var(--muted);
-            font-size: 13px;
-        }
-        .empty-state {
-            padding: 36px 22px 42px;
-            text-align: center;
-            color: var(--muted);
-        }
-        .error-banner {
-            background: rgba(254, 226, 226, 0.96);
-            color: #b91c1c;
-            border: 1px solid rgba(239, 68, 68, 0.3);
-            padding: 14px 16px;
-            border-radius: 16px;
-            margin-bottom: 18px;
-            display: none;
-        }
-        .error-banner.active {
-            display: block;
-        }
-        @media (max-width: 1120px) {
-            .dashboard-grid {
-                grid-template-columns: 1fr;
-            }
-        }
-        @media (max-width: 900px) {
-            .summary-grid,
-            .message-grid,
-            .analysis-grid,
-            .feedback-grid {
-                grid-template-columns: 1fr;
-            }
-            .topbar,
-            .interaction-head {
-                flex-direction: column;
-            }
-            .trace-kv {
-                grid-template-columns: 1fr;
-            }
-        }
-    </style>
-</head>
-<body>
-    <div class="page">
-        <div class="topbar">
-            <div class="hero">
-                <h1>Admin Pipeline Dashboard</h1>
-                <p>Review every customer interaction end to end: language handling, model classification, confidence-based routing, response generation, and the feedback loop that helps improve retraining data.</p>
-                <div class="hero-meta">Last refreshed: <span id="lastUpdated">never</span></div>
-            </div>
-            <div class="top-actions">
-                <a class="ghost-link" href="/">Back to Support UI</a>
-                <button class="refresh-btn" type="button" onclick="loadDashboard()">Refresh Data</button>
-            </div>
-        </div>
-
-        <div class="error-banner" id="errorBanner"></div>
-
-        <div class="dashboard-grid">
-            <section class="card">
-                <h2>Operational Snapshot</h2>
-                <div class="summary-grid" id="summaryGrid"></div>
-            </section>
-
-            <section class="card">
-                <h2>Pipeline Coverage</h2>
-                <div class="pipeline-flow">
-                    <div class="pipeline-step">
-                        <div class="step-badge">1</div>
-                        <div class="step-copy">
-                            <strong>Language handling</strong>
-                            <span>See detected language, whether translation was skipped or invoked, and the English text passed into the classifier.</span>
-                        </div>
-                    </div>
-                    <div class="pipeline-step">
-                        <div class="step-badge">2</div>
-                        <div class="step-copy">
-                            <strong>Classification model</strong>
-                            <span>Inspect the predicted category, confidence score, and top class probabilities for each interaction.</span>
-                        </div>
-                    </div>
-                    <div class="pipeline-step">
-                        <div class="step-badge">3</div>
-                        <div class="step-copy">
-                            <strong>Decision routing</strong>
-                            <span>Review how thresholds drove AUTO_REPLY, CLARIFY, or ESCALATE, plus the reason used to pick the response pattern.</span>
-                        </div>
-                    </div>
-                    <div class="pipeline-step">
-                        <div class="step-badge">4</div>
-                        <div class="step-copy">
-                            <strong>Admin feedback loop</strong>
-                            <span>Flag poor responses, add notes, and store suggested labels so future retraining can learn from reviewed cases.</span>
-                        </div>
-                    </div>
-                </div>
+            <section class="admin-box">
+                <div class="admin-box-label">Translated message used for inference</div>
+                <p class="admin-box-copy">{_escape_text(translated_message)}</p>
+                <div class="admin-subtle admin-subtle--spaced">{_escape_text(translated_note)}</div>
             </section>
         </div>
 
-        <section class="card interactions-card">
-            <div class="interactions-header">
-                <div>
-                    <h2>Interaction History</h2>
-                    <p>Newest interactions appear first. Expand a record to inspect the full trace and add admin feedback.</p>
+        <section class="admin-box">
+            <div class="admin-box-label">Classification and routing</div>
+            <div class="admin-analysis-grid">
+                <div class="admin-analysis-stat">
+                    <div class="admin-subtle">Predicted category</div>
+                    <strong>{_escape_text(item.get('predicted_label'), 'n/a')}</strong>
+                </div>
+                <div class="admin-analysis-stat">
+                    <div class="admin-subtle">Confidence score</div>
+                    <strong>{float(item.get('confidence_score', 0.0) or 0.0) * 100:.1f}%</strong>
+                </div>
+                <div class="admin-analysis-stat">
+                    <div class="admin-subtle">Response route</div>
+                    <strong>{_escape_text(item.get('route_decision'), 'n/a')}</strong>
                 </div>
             </div>
-            <div class="interactions-list" id="interactionsList">
-                <div class="empty-state">Loading interactions...</div>
-            </div>
+            <div class="admin-generation-note">{_escape_text(generation.get('reason'), 'No response-generation note stored for this interaction.')}</div>
+            {render_admin_probability_html(item.get('class_probabilities') or {})}
         </section>
-    </div>
 
-    <script>
-        const CATEGORY_OPTIONS = __CATEGORY_OPTIONS__;
+        <section class="admin-box admin-box--response">
+            <div class="admin-box-label">Automated reply</div>
+            <p class="admin-box-copy">{_escape_text(item.get('response'))}</p>
+        </section>
 
-        function escapeHtml(text) {
-            const div = document.createElement('div');
-            div.textContent = text ?? '';
-            return div.innerHTML;
+        <section class="admin-box">
+            <div class="admin-box-label">Admin feedback summary</div>
+            {render_admin_feedback_summary_html(feedback)}
+        </section>
+
+        <details class="admin-trace">
+            <summary>Full pipeline trace</summary>
+            {render_admin_trace_html(item.get('pipeline_trace') or [])}
+        </details>
+    </article>
+    """
+
+
+def render_admin_interactions_html(interactions: list[dict]) -> str:
+    if not interactions:
+        return '<div class="admin-empty-state">No interactions have been logged yet. Run a customer query from the support tab to populate this dashboard.</div>'
+    cards = "".join(render_admin_interaction_card_html(item) for item in interactions)
+    return f'<div class="admin-interactions-list">{cards}</div>'
+
+
+def render_admin_selected_interaction_html(item: Optional[dict]) -> str:
+    if not item:
+        return '<div class="admin-empty-state admin-empty-state--compact">Select an interaction from the reviewer dropdown to inspect its full details and update the feedback state.</div>'
+
+    customer_line = _display_text(item.get("customer_name")) or f"Customer #{_display_text(item.get('customer_id'), 'n/a')}"
+    return (
+        '<div class="admin-selection-banner">'
+        f'Editing feedback for Interaction #{_escape_text(item.get("id"), "n/a")} · {_escape_text(customer_line)} '
+        f'· {_escape_text(_display_text(item.get("route_decision"), "n/a"))}'
+        '</div>'
+        + render_admin_interaction_card_html(item)
+    )
+
+
+def render_admin_feedback_status_html(
+    feedback: Optional[dict],
+    *,
+    message: str = "",
+    tone: str = "info",
+) -> str:
+    feedback = feedback or {}
+    if message:
+        return render_gradio_banner(message, tone=tone)
+
+    updated_at = feedback.get("updated_at")
+    if updated_at:
+        return f'<div class="admin-feedback-status">Last feedback update: {_escape_text(_format_timestamp(updated_at))}</div>'
+    return '<div class="admin-feedback-status">No admin feedback saved yet.</div>'
+
+
+def _admin_interaction_choices(interactions: list[dict]) -> list[tuple[str, str]]:
+    choices = []
+    for item in interactions:
+        customer_line = _display_text(item.get("customer_name")) or f"Customer #{_display_text(item.get('customer_id'), 'n/a')}"
+        label = (
+            f"Interaction #{item['id']} · "
+            f"{customer_line} · "
+            f"{_display_text(item.get('route_decision'), 'n/a')} · "
+            f"{_format_timestamp(item.get('timestamp'))}"
+        )
+        choices.append((label, str(item["id"])))
+    return choices
+
+
+def _admin_category_choices() -> list[tuple[str, str]]:
+    return [("Keep predicted category", "")] + [(category, category) for category in CATEGORY_OPTIONS]
+
+
+def _empty_admin_dashboard_outputs(
+    gr_module,
+    *,
+    error_message: str = "",
+    feedback_message: str = "",
+    feedback_tone: str = "info",
+) -> tuple[str, str, str, str, dict, str, str, dict, str, dict]:
+    return (
+        render_gradio_banner(error_message, tone="error"),
+        render_admin_last_updated_html(),
+        render_admin_summary_html({}),
+        render_admin_interactions_html([]),
+        gr_module.update(choices=[], value=None),
+        render_admin_selected_interaction_html(None),
+        "",
+        gr_module.update(choices=_admin_category_choices(), value=""),
+        render_admin_feedback_status_html({}, message=feedback_message, tone=feedback_tone),
+        {},
+    )
+
+
+def build_admin_dashboard_outputs(
+    gr_module,
+    selected_interaction_id: Optional[str] = None,
+    *,
+    error_message: str = "",
+    feedback_message: str = "",
+    feedback_tone: str = "info",
+) -> tuple[str, str, str, str, dict, str, str, dict, str, dict]:
+    try:
+        dashboard = fetch_admin_dashboard_data(limit=100)
+    except Exception as exc:
+        return _empty_admin_dashboard_outputs(
+            gr_module,
+            error_message=error_message or str(exc),
+            feedback_message=feedback_message,
+            feedback_tone=feedback_tone,
+        )
+
+    interactions = dashboard.get("interactions") or []
+    interaction_map = {str(item["id"]): item for item in interactions}
+    if not interactions:
+        return _empty_admin_dashboard_outputs(
+            gr_module,
+            error_message=error_message,
+            feedback_message=feedback_message,
+            feedback_tone=feedback_tone,
+        )
+
+    selected_id = _display_text(selected_interaction_id)
+    if selected_id not in interaction_map:
+        selected_id = str(interactions[0]["id"])
+    selected_item = interaction_map[selected_id]
+    feedback_status_html = render_admin_feedback_status_html(
+        selected_item.get("feedback"),
+        message=feedback_message,
+        tone=feedback_tone,
+    )
+    return (
+        render_gradio_banner(error_message, tone="error"),
+        render_admin_last_updated_html(),
+        render_admin_summary_html(dashboard.get("summary") or {}),
+        render_admin_interactions_html(interactions),
+        gr_module.update(choices=_admin_interaction_choices(interactions), value=selected_id),
+        render_admin_selected_interaction_html(selected_item),
+        _display_text(selected_item.get("feedback", {}).get("reason")),
+        gr_module.update(
+            choices=_admin_category_choices(),
+            value=_display_text(selected_item.get("feedback", {}).get("suggested_category")),
+        ),
+        feedback_status_html,
+        interaction_map,
+    )
+
+
+def initialize_admin_dashboard(gr_module):
+    return build_admin_dashboard_outputs(gr_module)
+
+
+def handle_admin_interaction_change(gr_module, interaction_id: str, interaction_map: dict):
+    interaction_id = _display_text(interaction_id)
+    item = (interaction_map or {}).get(interaction_id)
+    if not item:
+        return (
+            render_admin_selected_interaction_html(None),
+            "",
+            gr_module.update(choices=_admin_category_choices(), value=""),
+            render_admin_feedback_status_html({}, message="Select an interaction to review.", tone="info"),
+            "",
+        )
+
+    return (
+        render_admin_selected_interaction_html(item),
+        _display_text(item.get("feedback", {}).get("reason")),
+        gr_module.update(
+            choices=_admin_category_choices(),
+            value=_display_text(item.get("feedback", {}).get("suggested_category")),
+        ),
+        render_admin_feedback_status_html(item.get("feedback")),
+        "",
+    )
+
+
+def save_admin_feedback_from_gradio(
+    gr_module,
+    interaction_id: str,
+    reason: str,
+    suggested_category: str,
+    flagged: bool,
+):
+    interaction_id = _display_text(interaction_id)
+    if not interaction_id:
+        return build_admin_dashboard_outputs(
+            gr_module,
+            feedback_message="Select an interaction to review first.",
+            feedback_tone="error",
+        )
+
+    try:
+        save_admin_feedback(
+            interaction_id=int(interaction_id),
+            flagged=flagged,
+            reason=_display_text(reason),
+            suggested_category=_display_text(suggested_category),
+        )
+    except Exception as exc:
+        return build_admin_dashboard_outputs(
+            gr_module,
+            selected_interaction_id=interaction_id,
+            feedback_message=str(exc),
+            feedback_tone="error",
+        )
+
+    return build_admin_dashboard_outputs(
+        gr_module,
+        selected_interaction_id=interaction_id,
+        feedback_message=(
+            "Flagged and stored for retraining review."
+            if flagged
+            else "Flag cleared and review state updated."
+        ),
+        feedback_tone="success",
+    )
+
+
+def build_gradio_demo():
+    """Create a native Gradio implementation of the support and admin UIs."""
+    try:
+        import gradio as gr
+    except ImportError as exc:
+        raise RuntimeError(
+            "Gradio is not installed. Install dependencies with `pip install -r requirements.txt`."
+        ) from exc
+
+    app_css = """
+    body, .gradio-container {
+        background:
+            radial-gradient(circle at top left, rgba(20, 184, 166, 0.18), transparent 28%),
+            radial-gradient(circle at top right, rgba(14, 116, 144, 0.16), transparent 24%),
+            linear-gradient(180deg, #eef6fb 0%, #f8fbfd 100%);
+    }
+    .gradio-container {
+        max-width: 1460px !important;
+        padding-top: 24px !important;
+    }
+    .gradio-container .tabs {
+        border: none !important;
+        background: transparent !important;
+    }
+    .gradio-container .tab-nav {
+        gap: 10px;
+        margin-bottom: 16px;
+        border-bottom: none !important;
+    }
+    .gradio-container .tab-nav button {
+        border: 1px solid rgba(184, 206, 222, 0.9) !important;
+        border-radius: 16px 16px 0 0 !important;
+        background: rgba(255, 255, 255, 0.44) !important;
+        color: #607286 !important;
+        font-weight: 700 !important;
+        padding: 12px 18px !important;
+        transition: all 0.2s ease;
+    }
+    .gradio-container .tab-nav button.selected {
+        background: white !important;
+        color: #102033 !important;
+        box-shadow: 0 14px 30px rgba(15, 23, 42, 0.1);
+        border-color: rgba(216, 228, 239, 1) !important;
+    }
+    footer {
+        display: none !important;
+    }
+    .hero-panel {
+        border-radius: 28px;
+        padding: 28px 30px;
+        margin-bottom: 16px;
+        box-shadow: 0 20px 56px rgba(15, 23, 42, 0.14);
+        position: relative;
+        overflow: hidden;
+    }
+    .hero-panel h1 {
+        margin: 0 0 10px;
+        font-size: 34px;
+        letter-spacing: -0.03em;
+    }
+    .hero-panel p {
+        margin: 0;
+        line-height: 1.7;
+        max-width: 920px;
+    }
+    .hero-panel__note {
+        margin-top: 12px;
+        font-size: 13px;
+        font-weight: 700;
+    }
+    .hero-panel code {
+        background: rgba(255, 255, 255, 0.22);
+        padding: 2px 6px;
+        border-radius: 8px;
+    }
+    .hero-panel--support {
+        color: #102033;
+        background:
+            radial-gradient(circle at top left, rgba(20, 184, 166, 0.16), transparent 28%),
+            linear-gradient(180deg, rgba(255,255,255,0.98) 0%, rgba(244,250,255,0.98) 100%);
+        border: 1px solid rgba(216, 228, 239, 0.9);
+    }
+    .hero-panel--support .hero-panel__note {
+        color: #0f766e;
+    }
+    .hero-panel--admin {
+        color: white;
+        background:
+            radial-gradient(circle at top left, rgba(14, 165, 233, 0.28), transparent 32%),
+            radial-gradient(circle at top right, rgba(245, 158, 11, 0.24), transparent 28%),
+            linear-gradient(140deg, #07111f 0%, #0b1730 48%, #10263f 100%);
+        border: 1px solid rgba(191, 219, 254, 0.16);
+    }
+    .hero-panel--admin::before {
+        content: "";
+        position: absolute;
+        inset: 0;
+        background:
+            linear-gradient(115deg, rgba(14, 165, 233, 0.16), transparent 42%),
+            radial-gradient(circle at 88% 18%, rgba(255, 255, 255, 0.08), transparent 24%);
+        pointer-events: none;
+    }
+    .hero-panel--admin .hero-panel__copy {
+        position: relative;
+        z-index: 1;
+    }
+    .hero-panel--admin h1 {
+        color: #f8fbff !important;
+        text-shadow: 0 10px 28px rgba(0, 0, 0, 0.22);
+    }
+    .hero-panel--admin p {
+        color: rgba(226, 232, 240, 0.92) !important;
+    }
+    .hero-panel--admin .hero-panel__note {
+        color: rgba(191, 219, 254, 0.96) !important;
+        text-shadow: 0 6px 18px rgba(0, 0, 0, 0.18);
+    }
+    .surface-card {
+        background: rgba(255, 255, 255, 0.96);
+        border: 1px solid rgba(255, 255, 255, 0.78) !important;
+        border-radius: 24px;
+        box-shadow: 0 18px 48px rgba(15, 23, 42, 0.12);
+        padding: 22px !important;
+    }
+    .surface-card-dark {
+        background: rgba(255, 255, 255, 0.96);
+        border: 1px solid rgba(255, 255, 255, 0.4) !important;
+        border-radius: 24px;
+        box-shadow: 0 24px 60px rgba(8, 15, 35, 0.18);
+        padding: 22px !important;
+    }
+    .section-heading h2 {
+        margin: 0 0 6px;
+        font-size: 20px;
+    }
+    .section-heading p {
+        margin: 0;
+        color: #607286;
+        line-height: 1.6;
+    }
+    .ui-banner {
+        border-radius: 16px;
+        padding: 14px 16px;
+        margin-bottom: 12px;
+        font-weight: 600;
+    }
+    .ui-banner--error {
+        color: #b42318;
+        background: #fef3f2;
+        border: 1px solid #fecdca;
+    }
+    .ui-banner--success {
+        color: #166534;
+        background: #dcfce7;
+        border: 1px solid #bbf7d0;
+    }
+    .ui-banner--info {
+        color: #0f3e5d;
+        background: #edf7ff;
+        border: 1px solid #cde7fb;
+    }
+    .support-chat-scroll {
+        width: 100%;
+        min-height: 58vh;
+        max-height: 58vh;
+        overflow-y: auto;
+        padding: 22px;
+        border-radius: 22px;
+        background: linear-gradient(180deg, rgba(255,255,255,0.9) 0%, rgba(244,250,255,0.96) 100%);
+        border: 1px solid #d8e4ef;
+        display: flex;
+        flex-direction: column;
+        gap: 18px;
+    }
+    .support-empty-state, .admin-empty-state {
+        text-align: center;
+        color: #607286;
+        padding: 28px;
+    }
+    .admin-empty-state--compact {
+        padding: 20px 18px;
+        border: 1px dashed #d9e2ec;
+        border-radius: 16px;
+        background: #f8fafc;
+    }
+    .support-turn-group {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+    }
+    .support-bubble-row {
+        display: flex;
+    }
+    .support-bubble-row--user {
+        justify-content: flex-end;
+    }
+    .support-bubble-row--assistant {
+        justify-content: flex-start;
+    }
+    .support-bubble {
+        max-width: min(78%, 720px);
+        border-radius: 20px;
+        padding: 14px 16px;
+        box-shadow: 0 10px 24px rgba(15, 23, 42, 0.08);
+    }
+    .support-bubble--user {
+        background: #0f766e;
+        color: white;
+        border-bottom-right-radius: 8px;
+    }
+    .support-bubble--assistant {
+        background: white;
+        border: 1px solid #d8e4ef;
+        color: #102033;
+        border-bottom-left-radius: 8px;
+    }
+    .support-bubble-label {
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        font-weight: 700;
+        opacity: 0.82;
+        margin-bottom: 8px;
+    }
+    .support-bubble-copy {
+        white-space: pre-wrap;
+        line-height: 1.6;
+        margin: 0;
+    }
+    .support-meta-row {
+        margin-top: 12px;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+    }
+    .support-pill {
+        display: inline-flex;
+        align-items: center;
+        padding: 6px 10px;
+        border-radius: 999px;
+        background: #f8fbff;
+        border: 1px solid #d8e4ef;
+        font-size: 12px;
+        font-weight: 700;
+        color: #115e59;
+    }
+    .support-kv-grid {
+        display: grid;
+        gap: 10px;
+    }
+    .support-kv {
+        display: grid;
+        grid-template-columns: 120px 1fr;
+        gap: 10px;
+        align-items: start;
+        font-size: 14px;
+    }
+    .support-kv span {
+        color: #607286;
+        font-weight: 600;
+    }
+    .support-order-card {
+        border: 1px solid #d8e4ef;
+        background: #f8fbff;
+        border-radius: 16px;
+        padding: 12px 14px;
+        margin-top: 10px;
+    }
+    .support-order-card strong {
+        display: block;
+        margin-bottom: 6px;
+    }
+    .support-side-note {
+        margin-top: 16px;
+        color: #607286;
+        font-size: 13px;
+        line-height: 1.6;
+    }
+    .support-status-line {
+        display: flex;
+        align-items: center;
+        min-height: 52px;
+        padding: 12px 14px;
+        border-radius: 16px;
+        background: linear-gradient(180deg, #f8fbff 0%, #eef5fc 100%);
+        border: 1px solid #d8e4ef;
+        color: #47617d;
+        font-size: 13px;
+        line-height: 1.5;
+        font-weight: 600;
+    }
+    .support-dropdown label,
+    .support-composer label,
+    .admin-review-dropdown label,
+    .admin-feedback-text label,
+    .admin-feedback-dropdown label {
+        font-weight: 700 !important;
+        color: #516074 !important;
+    }
+    .support-dropdown, .support-composer, .admin-review-dropdown, .admin-feedback-text, .admin-feedback-dropdown {
+        background: transparent !important;
+        border: none !important;
+        box-shadow: none !important;
+        padding: 0 !important;
+    }
+    .support-dropdown input,
+    .support-dropdown .wrap,
+    .support-composer textarea,
+    .admin-review-dropdown input,
+    .admin-review-dropdown .wrap,
+    .admin-feedback-text textarea,
+    .admin-feedback-dropdown input,
+    .admin-feedback-dropdown .wrap {
+        border-radius: 16px !important;
+        border: 1px solid #d8e4ef !important;
+        background: white !important;
+    }
+    .support-composer textarea {
+        min-height: 104px !important;
+        padding: 16px 18px !important;
+        line-height: 1.6 !important;
+        box-shadow: inset 0 1px 2px rgba(15, 23, 42, 0.04);
+    }
+    .support-composer textarea::placeholder {
+        color: #7b8ba4 !important;
+    }
+    .support-suggestion-row {
+        gap: 10px !important;
+        margin-top: 14px !important;
+        flex-wrap: wrap !important;
+        align-items: center !important;
+    }
+    .support-suggestion-btn {
+        flex: 0 0 auto !important;
+        min-width: 0 !important;
+    }
+    .support-suggestion-btn button {
+        border: 1px solid #d8e4ef !important;
+        background: #f8fbff !important;
+        color: #115e59 !important;
+        border-radius: 999px !important;
+        font-weight: 600 !important;
+        width: auto !important;
+        min-width: 0 !important;
+        padding: 10px 16px !important;
+        box-shadow: 0 8px 18px rgba(15, 23, 42, 0.04);
+    }
+    .support-suggestion-btn button:hover {
+        background: #ecfdf5 !important;
+        border-color: #9fd9cf !important;
+    }
+    .support-composer-footer {
+        gap: 14px !important;
+        margin-top: 14px !important;
+        align-items: stretch !important;
+    }
+    .support-status-block {
+        flex: 1 1 320px !important;
+        min-width: 0 !important;
+    }
+    .support-send-block {
+        flex: 0 0 220px !important;
+        min-width: 220px !important;
+    }
+    .support-send-btn button {
+        border: none !important;
+        background: linear-gradient(135deg, #0f766e, #115e59) !important;
+        color: white !important;
+        border-radius: 14px !important;
+        font-weight: 700 !important;
+        min-height: 48px !important;
+        box-shadow: 0 14px 28px rgba(15, 118, 110, 0.22);
+        letter-spacing: 0.01em;
+    }
+    .support-send-btn button:hover {
+        filter: brightness(1.02);
+    }
+    .admin-last-updated {
+        color: rgba(15, 23, 42, 0.7);
+        font-size: 13px;
+        margin: 4px 0 14px;
+    }
+    .admin-summary-grid {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 14px;
+    }
+    .admin-metric {
+        border-radius: 18px;
+        background: linear-gradient(180deg, #f8fbff 0%, #eef6ff 100%);
+        border: 1px solid #d9ebfb;
+        padding: 16px;
+    }
+    .admin-metric__label {
+        font-size: 12px;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        color: #516074;
+        margin-bottom: 10px;
+    }
+    .admin-metric__value {
+        font-size: 30px;
+        font-weight: 700;
+        color: #0369a1;
+    }
+    .admin-metric__subtitle {
+        margin-top: 6px;
+        color: #516074;
+        font-size: 13px;
+        line-height: 1.5;
+    }
+    .admin-pipeline-flow {
+        display: grid;
+        gap: 12px;
+    }
+    .admin-pipeline-step {
+        display: grid;
+        grid-template-columns: auto 1fr;
+        gap: 12px;
+        align-items: start;
+    }
+    .admin-step-badge {
+        width: 34px;
+        height: 34px;
+        border-radius: 50%;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        background: linear-gradient(135deg, #0ea5e9, #22d3ee);
+        color: white;
+        font-weight: 700;
+    }
+    .admin-step-copy strong {
+        display: block;
+        margin-bottom: 4px;
+    }
+    .admin-step-copy span {
+        color: #516074;
+        line-height: 1.5;
+        font-size: 14px;
+    }
+    .admin-interactions-list {
+        display: grid;
+        gap: 18px;
+    }
+    .admin-interaction-card {
+        padding: 22px;
+        border-radius: 22px;
+        border: 1px solid #d9e2ec;
+        background: linear-gradient(180deg, rgba(255,255,255,1) 0%, rgba(248,250,252,1) 100%);
+    }
+    .admin-interaction-head {
+        display: flex;
+        justify-content: space-between;
+        gap: 16px;
+        align-items: flex-start;
+        margin-bottom: 16px;
+    }
+    .admin-interaction-title {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        align-items: center;
+        margin-bottom: 8px;
+    }
+    .admin-interaction-title h3 {
+        margin: 0;
+        font-size: 20px;
+    }
+    .admin-pill {
+        display: inline-flex;
+        align-items: center;
+        padding: 6px 10px;
+        border-radius: 999px;
+        font-size: 12px;
+        font-weight: 700;
+        letter-spacing: 0.02em;
+    }
+    .admin-pill--auto_reply {
+        background: #dbeafe;
+        color: #1d4ed8;
+    }
+    .admin-pill--clarify {
+        background: #fef3c7;
+        color: #b45309;
+    }
+    .admin-pill--escalate {
+        background: #fee2e2;
+        color: #b91c1c;
+    }
+    .admin-pill--flagged {
+        background: #fee2e2;
+        color: #b91c1c;
+    }
+    .admin-pill--reviewed {
+        background: #dcfce7;
+        color: #166534;
+    }
+    .admin-message-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 16px;
+        margin-bottom: 16px;
+    }
+    .admin-box {
+        background: #f8fafc;
+        border: 1px solid #d9e2ec;
+        border-radius: 16px;
+        padding: 16px;
+    }
+    .admin-box--response {
+        margin: 16px 0;
+    }
+    .admin-box-label {
+        font-size: 12px;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        color: #516074;
+        margin-bottom: 10px;
+    }
+    .admin-box-copy {
+        margin: 0;
+        white-space: pre-wrap;
+        line-height: 1.6;
+    }
+    .admin-analysis-grid {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 12px;
+        margin-bottom: 14px;
+    }
+    .admin-analysis-stat {
+        background: white;
+        border: 1px solid #d9e2ec;
+        border-radius: 14px;
+        padding: 12px;
+    }
+    .admin-analysis-stat strong {
+        display: block;
+        font-size: 20px;
+        margin-top: 4px;
+    }
+    .admin-generation-note {
+        background: #edf7ff;
+        border: 1px solid #cde7fb;
+        padding: 12px;
+        border-radius: 12px;
+        color: #0f3e5d;
+        line-height: 1.5;
+    }
+    .admin-probability-list {
+        display: grid;
+        gap: 8px;
+        margin-top: 14px;
+    }
+    .admin-prob-row {
+        display: grid;
+        grid-template-columns: 110px 1fr 54px;
+        gap: 10px;
+        align-items: center;
+    }
+    .admin-prob-bar {
+        height: 8px;
+        border-radius: 999px;
+        background: #dbeafe;
+        overflow: hidden;
+    }
+    .admin-prob-fill {
+        height: 100%;
+        border-radius: 999px;
+        background: linear-gradient(90deg, #0ea5e9, #22c55e);
+    }
+    .admin-trace {
+        margin-top: 16px;
+        border: 1px solid #d9e2ec;
+        border-radius: 16px;
+        overflow: hidden;
+        background: white;
+    }
+    .admin-trace summary {
+        cursor: pointer;
+        padding: 16px;
+        font-weight: 700;
+    }
+    .admin-trace-list {
+        display: grid;
+        gap: 12px;
+        padding: 0 16px 16px;
+    }
+    .admin-trace-entry {
+        border: 1px solid #d9e2ec;
+        border-radius: 14px;
+        padding: 14px;
+        background: #f8fafc;
+    }
+    .admin-trace-entry h4 {
+        margin: 0 0 6px;
+        font-size: 15px;
+    }
+    .admin-trace-entry p {
+        margin: 0 0 10px;
+        color: #516074;
+        line-height: 1.5;
+    }
+    .admin-trace-details {
+        display: grid;
+        gap: 8px;
+    }
+    .admin-trace-kv {
+        display: grid;
+        grid-template-columns: 180px 1fr;
+        gap: 10px;
+        font-size: 13px;
+    }
+    .admin-trace-kv span {
+        color: #516074;
+    }
+    .admin-trace-kv code {
+        background: white;
+        border: 1px solid #e2e8f0;
+        padding: 6px 8px;
+        border-radius: 10px;
+        white-space: pre-wrap;
+        word-break: break-word;
+    }
+    .admin-feedback-summary {
+        display: grid;
+        gap: 8px;
+    }
+    .admin-feedback-status {
+        margin-top: 8px;
+        color: #516074;
+        font-size: 13px;
+    }
+    .admin-subtle {
+        color: #516074;
+        font-size: 13px;
+    }
+    .admin-subtle--spaced {
+        margin-top: 10px;
+    }
+    .admin-selection-banner {
+        margin-bottom: 12px;
+        padding: 12px 14px;
+        border-radius: 14px;
+        background: #edf7ff;
+        border: 1px solid #cde7fb;
+        color: #0f3e5d;
+        font-weight: 600;
+    }
+    .admin-refresh-btn button {
+        border: 1px solid rgba(191, 219, 254, 0.28) !important;
+        background: linear-gradient(135deg, #0ea5e9, #0369a1) !important;
+        color: white !important;
+        border-radius: 999px !important;
+        font-weight: 700 !important;
+    }
+    .admin-flag-btn button {
+        background: linear-gradient(135deg, #ef4444, #dc2626) !important;
+        color: white !important;
+        border-radius: 12px !important;
+        font-weight: 700 !important;
+    }
+    .admin-clear-btn button {
+        background: white !important;
+        color: #102033 !important;
+        border: 1px solid #d9e2ec !important;
+        border-radius: 12px !important;
+        font-weight: 700 !important;
+    }
+    @media (max-width: 1120px) {
+        .admin-summary-grid {
+            grid-template-columns: repeat(2, minmax(0, 1fr));
         }
-
-        function prettyKey(key) {
-            return key.replace(/_/g, ' ').replace(/\\b\\w/g, (char) => char.toUpperCase());
+    }
+    @media (max-width: 900px) {
+        .admin-message-grid,
+        .admin-analysis-grid,
+        .admin-summary-grid {
+            grid-template-columns: 1fr;
         }
-
-        function formatValue(value) {
-            if (value === null || value === undefined || value === '') {
-                return 'n/a';
-            }
-            if (typeof value === 'number') {
-                return Number.isInteger(value) ? String(value) : value.toFixed(4);
-            }
-            if (Array.isArray(value) || typeof value === 'object') {
-                return JSON.stringify(value);
-            }
-            return String(value);
+        .admin-interaction-head {
+            flex-direction: column;
         }
-
-        function routeClass(route) {
-            return `route-${String(route || '').toLowerCase()}`;
+        .admin-trace-kv,
+        .support-kv {
+            grid-template-columns: 1fr;
         }
-
-        function feedbackBadge(feedback) {
-            if (feedback && feedback.flagged) {
-                return '<span class="pill flagged">Flagged for retraining</span>';
-            }
-            return '<span class="pill reviewed">Awaiting or cleared</span>';
+    }
+    @media (max-width: 720px) {
+        .hero-panel {
+            padding: 22px 20px;
         }
-
-        function formatTimestamp(value) {
-            if (!value) {
-                return 'Unknown time';
-            }
-            const parsed = new Date(value);
-            return Number.isNaN(parsed.getTime()) ? value : parsed.toLocaleString();
+        .support-bubble {
+            max-width: 92%;
         }
-
-        function renderSummary(summary) {
-            const metrics = [
-                ['Total interactions', summary.total_interactions, 'All logged requests across the serving pipeline'],
-                ['Flagged responses', summary.flagged_interactions, 'Admin-reviewed cases captured for feedback'],
-                ['Auto replies', summary.auto_replies, 'High-confidence responses sent automatically'],
-                ['Clarify + escalate', summary.clarifications + summary.escalations, 'Cases needing extra detail or human review']
-            ];
-
-            document.getElementById('summaryGrid').innerHTML = metrics.map(([label, value, subtitle]) => `
-                <article class="metric">
-                    <div class="metric-label">${escapeHtml(label)}</div>
-                    <div class="metric-value">${escapeHtml(String(value))}</div>
-                    <div class="metric-subtitle">${escapeHtml(subtitle)}</div>
-                </article>
-            `).join('');
+        .support-composer-footer {
+            flex-direction: column !important;
         }
-
-        function renderProbabilities(probabilities) {
-            const entries = Object.entries(probabilities || {})
-                .sort((a, b) => b[1] - a[1])
-                .slice(0, 4);
-
-            if (!entries.length) {
-                return '<div class="subtle">No probability breakdown stored.</div>';
-            }
-
-            return `<div class="probability-list">${entries.map(([label, score]) => `
-                <div class="prob-row">
-                    <strong>${escapeHtml(label)}</strong>
-                    <div class="prob-bar"><div class="prob-fill" style="width:${Math.max(0, Math.min(100, score * 100))}%"></div></div>
-                    <span>${(score * 100).toFixed(1)}%</span>
-                </div>
-            `).join('')}</div>`;
+        .support-send-block {
+            min-width: 100% !important;
+            flex-basis: 100% !important;
         }
+    }
+    """
 
-        function renderTrace(trace) {
-            if (!Array.isArray(trace) || !trace.length) {
-                return '<div class="subtle">No trace data stored for this interaction.</div>';
-            }
-
-            return `<div class="trace-list">${trace.map((entry, index) => `
-                <article class="trace-entry">
-                    <h4>${index + 1}. ${escapeHtml(prettyKey(entry.stage || 'stage'))}</h4>
-                    <p>${escapeHtml(entry.summary || '')}</p>
-                    ${entry.details && Object.keys(entry.details).length ? `
-                        <div class="trace-details">
-                            ${Object.entries(entry.details).map(([key, value]) => `
-                                <div class="trace-kv">
-                                    <span>${escapeHtml(prettyKey(key))}</span>
-                                    <code>${escapeHtml(formatValue(value))}</code>
+    with gr.Blocks(
+        title="Customer Support Triage",
+        css=app_css,
+        analytics_enabled=False,
+    ) as demo:
+        with gr.Tabs():
+            with gr.Tab("Support Chat"):
+                gr.HTML(render_support_hero_html())
+                support_error = gr.HTML()
+                with gr.Row(equal_height=False):
+                    with gr.Column(scale=5):
+                        with gr.Group(elem_classes=["surface-card"]):
+                            gr.HTML(
+                                """
+                                <div class="section-heading">
+                                    <h2>Scoped Conversation</h2>
+                                    <p>Previous chat turns for the selected customer are shown below.</p>
                                 </div>
-                            `).join('')}
+                                """
+                            )
+                            customer_dropdown = gr.Dropdown(
+                                label="Current User",
+                                choices=[],
+                                value=None,
+                                interactive=True,
+                                elem_classes=["support-dropdown"],
+                            )
+                            chat_history_html = gr.HTML(render_support_chat_history_html([]))
+                            query_input = gr.Textbox(
+                                show_label=False,
+                                placeholder="Ask a question about the selected customer's account, order, refund, payment, or subscription.",
+                                lines=4,
+                                elem_classes=["support-composer"],
+                            )
+                            with gr.Row(elem_classes=["support-suggestion-row"]):
+                                suggest_order_btn = gr.Button("Where is my order?", elem_classes=["support-suggestion-btn"])
+                                suggest_refund_btn = gr.Button("I want a refund", elem_classes=["support-suggestion-btn"])
+                                suggest_subscription_btn = gr.Button("Check subscription", elem_classes=["support-suggestion-btn"])
+                            with gr.Row(equal_height=True, elem_classes=["support-composer-footer"]):
+                                with gr.Column(scale=5, elem_classes=["support-status-block"]):
+                                    support_status = gr.HTML(render_support_status_html("Choose a customer to start chatting."))
+                                with gr.Column(scale=2, min_width=220, elem_classes=["support-send-block"]):
+                                    send_btn = gr.Button("Send message", elem_classes=["support-send-btn"])
+                    with gr.Column(scale=3):
+                        with gr.Group(elem_classes=["surface-card"]):
+                            gr.HTML("<div class=\"section-heading\"><h2>Selected User</h2></div>")
+                            user_summary_html = gr.HTML(render_support_user_summary_html(None))
+                            recent_orders_html = gr.HTML("")
+                            gr.HTML(
+                                '<div class="support-side-note">Replies in this chat are limited to the selected user\'s account and order records. Internal JSON context stays hidden from the customer view.</div>'
+                            )
+            with gr.Tab("Admin UI"):
+                gr.HTML(render_admin_hero_html())
+                admin_error = gr.HTML()
+                admin_last_updated = gr.HTML(render_admin_last_updated_html())
+                with gr.Row(equal_height=False):
+                    with gr.Column(scale=5):
+                        with gr.Group(elem_classes=["surface-card-dark"]):
+                            gr.HTML('<div class="section-heading"><h2>Operational Snapshot</h2></div>')
+                            admin_summary_html = gr.HTML(render_admin_summary_html({}))
+                    with gr.Column(scale=3):
+                        with gr.Group(elem_classes=["surface-card-dark"]):
+                            gr.HTML('<div class="section-heading"><h2>Pipeline Coverage</h2></div>')
+                            gr.HTML(render_admin_pipeline_coverage_html())
+                with gr.Group(elem_classes=["surface-card-dark"]):
+                    gr.HTML(
+                        """
+                        <div class="section-heading">
+                            <h2>Review Interaction</h2>
+                            <p>Select a logged interaction, inspect its full details, and update the admin feedback state.</p>
                         </div>
-                    ` : ''}
-                </article>
-            `).join('')}</div>`;
-        }
-
-        function renderCategoryOptions(selected) {
-            const base = '<option value="">Keep predicted category</option>';
-            const options = CATEGORY_OPTIONS.map((category) => {
-                const isSelected = category === selected ? 'selected' : '';
-                return `<option value="${escapeHtml(category)}" ${isSelected}>${escapeHtml(category)}</option>`;
-            }).join('');
-            return base + options;
-        }
-
-        function renderInteractionCard(item) {
-            const feedback = item.feedback || {};
-            const generation = item.response_generation || {};
-            const translatedDiffers = item.translated_message && item.translated_message !== item.raw_message;
-
-            return `
-                <article class="interaction-card">
-                    <div class="interaction-head">
-                        <div>
-                            <div class="interaction-title">
-                                <h3>Interaction #${item.id}</h3>
-                                <span class="pill ${routeClass(item.route_decision)}">${escapeHtml(item.route_decision)}</span>
-                                ${feedbackBadge(feedback)}
+                        """
+                    )
+                    admin_interaction_dropdown = gr.Dropdown(
+                        label="Interaction",
+                        choices=[],
+                        value=None,
+                        interactive=True,
+                        elem_classes=["admin-review-dropdown"],
+                    )
+                    admin_selected_interaction_html = gr.HTML(render_admin_selected_interaction_html(None))
+                    feedback_reason_text = gr.Textbox(
+                        label="Admin feedback notes",
+                        placeholder="Why is this response inappropriate or useful for retraining?",
+                        lines=4,
+                        elem_classes=["admin-feedback-text"],
+                    )
+                    feedback_category_dropdown = gr.Dropdown(
+                        label="Suggested category",
+                        choices=_admin_category_choices(),
+                        value="",
+                        interactive=True,
+                        elem_classes=["admin-feedback-dropdown"],
+                    )
+                    with gr.Row():
+                        flag_feedback_btn = gr.Button("Flag response", elem_classes=["admin-flag-btn"])
+                        clear_feedback_btn = gr.Button("Clear flag", elem_classes=["admin-clear-btn"])
+                    admin_feedback_status = gr.HTML(render_admin_feedback_status_html({}))
+                    admin_state = gr.State({})
+                with gr.Group(elem_classes=["surface-card-dark"]):
+                    with gr.Row(equal_height=False):
+                        gr.HTML(
+                            """
+                            <div class="section-heading">
+                                <h2>Interaction History</h2>
+                                <p>Newest interactions appear first. Review the full trace for each interaction and then use the review editor above to save feedback.</p>
                             </div>
-                            <div class="subtle">${escapeHtml(formatTimestamp(item.timestamp))}</div>
-                        </div>
-                        <div class="subtle">Language: ${escapeHtml(item.detected_language || 'en')}</div>
-                    </div>
+                            """
+                        )
+                        refresh_admin_btn = gr.Button("Refresh Data", elem_classes=["admin-refresh-btn"])
+                    admin_interactions_html = gr.HTML(render_admin_interactions_html([]))
 
-                    <div class="message-grid">
-                        <section class="message-box">
-                            <div class="box-label">Original customer message</div>
-                            <p class="box-copy">${escapeHtml(item.raw_message || '')}</p>
-                        </section>
-                        <section class="message-box">
-                            <div class="box-label">Translated message used for inference</div>
-                            <p class="box-copy">${escapeHtml(item.translated_message || item.raw_message || '')}</p>
-                            <div class="subtle" style="margin-top:10px;">
-                                ${translatedDiffers ? 'Translation changed the text before classification.' : 'Original text was used directly for classification.'}
-                            </div>
-                        </section>
-                    </div>
+        demo.load(
+            fn=lambda: initialize_support_tab(gr),
+            outputs=[
+                customer_dropdown,
+                chat_history_html,
+                user_summary_html,
+                recent_orders_html,
+                support_status,
+                support_error,
+            ],
+        )
+        demo.load(
+            fn=lambda: initialize_admin_dashboard(gr),
+            outputs=[
+                admin_error,
+                admin_last_updated,
+                admin_summary_html,
+                admin_interactions_html,
+                admin_interaction_dropdown,
+                admin_selected_interaction_html,
+                feedback_reason_text,
+                feedback_category_dropdown,
+                admin_feedback_status,
+                admin_state,
+            ],
+        )
 
-                    <section class="analysis-box">
-                        <div class="box-label">Classification and routing</div>
-                        <div class="analysis-grid">
-                            <div class="analysis-stat">
-                                <div class="subtle">Predicted category</div>
-                                <strong>${escapeHtml(item.predicted_label || 'n/a')}</strong>
-                            </div>
-                            <div class="analysis-stat">
-                                <div class="subtle">Confidence score</div>
-                                <strong>${((item.confidence_score || 0) * 100).toFixed(1)}%</strong>
-                            </div>
-                            <div class="analysis-stat">
-                                <div class="subtle">Response route</div>
-                                <strong>${escapeHtml(item.route_decision || 'n/a')}</strong>
-                            </div>
-                        </div>
-                        <div class="generation-note">
-                            ${escapeHtml(generation.reason || 'No response-generation note stored for this interaction.')}
-                        </div>
-                        ${renderProbabilities(item.class_probabilities)}
-                    </section>
+        customer_dropdown.change(
+            fn=handle_support_customer_change,
+            inputs=[customer_dropdown],
+            outputs=[
+                chat_history_html,
+                user_summary_html,
+                recent_orders_html,
+                support_status,
+                support_error,
+            ],
+        )
 
-                    <section class="response-box">
-                        <div class="box-label">Automated reply</div>
-                        <p class="box-copy">${escapeHtml(item.response || '')}</p>
-                    </section>
+        send_btn.click(
+            fn=handle_support_message_submit,
+            inputs=[customer_dropdown, query_input],
+            outputs=[
+                query_input,
+                chat_history_html,
+                user_summary_html,
+                recent_orders_html,
+                support_status,
+                support_error,
+            ],
+        )
+        query_input.submit(
+            fn=handle_support_message_submit,
+            inputs=[customer_dropdown, query_input],
+            outputs=[
+                query_input,
+                chat_history_html,
+                user_summary_html,
+                recent_orders_html,
+                support_status,
+                support_error,
+            ],
+        )
 
-                    <section class="feedback-box">
-                        <div class="box-label">Admin feedback loop</div>
-                        <div class="feedback-grid">
-                            <textarea id="feedback-reason-${item.id}" placeholder="Why is this response inappropriate or useful for retraining?">${escapeHtml(feedback.reason || '')}</textarea>
-                            <select id="feedback-category-${item.id}">
-                                ${renderCategoryOptions(feedback.suggested_category || '')}
-                            </select>
-                            <button class="btn btn-flag" type="button" onclick="submitFeedback(${item.id}, true)">Flag response</button>
-                            <button class="btn btn-clear" type="button" onclick="submitFeedback(${item.id}, false)">Clear flag</button>
-                        </div>
-                        <div class="feedback-status" id="feedback-status-${item.id}">
-                            ${feedback.updated_at ? `Last feedback update: ${escapeHtml(formatTimestamp(feedback.updated_at))}` : 'No admin feedback saved yet.'}
-                        </div>
-                    </section>
+        suggest_order_btn.click(lambda: "Where is my order?", outputs=[query_input])
+        suggest_refund_btn.click(lambda: "I want a refund", outputs=[query_input])
+        suggest_subscription_btn.click(lambda: "Can you check my subscription?", outputs=[query_input])
 
-                    <details class="trace">
-                        <summary>Full pipeline trace</summary>
-                        ${renderTrace(item.pipeline_trace)}
-                    </details>
-                </article>
-            `;
-        }
+        refresh_admin_btn.click(
+            fn=lambda selected_id: build_admin_dashboard_outputs(gr, selected_id),
+            inputs=[admin_interaction_dropdown],
+            outputs=[
+                admin_error,
+                admin_last_updated,
+                admin_summary_html,
+                admin_interactions_html,
+                admin_interaction_dropdown,
+                admin_selected_interaction_html,
+                feedback_reason_text,
+                feedback_category_dropdown,
+                admin_feedback_status,
+                admin_state,
+            ],
+        )
 
-        function renderInteractions(interactions) {
-            const container = document.getElementById('interactionsList');
-            if (!interactions.length) {
-                container.innerHTML = '<div class="empty-state">No interactions have been logged yet. Run a customer query from the support UI to populate this dashboard.</div>';
-                return;
-            }
+        admin_interaction_dropdown.change(
+            fn=lambda interaction_id, interaction_map: handle_admin_interaction_change(gr, interaction_id, interaction_map),
+            inputs=[admin_interaction_dropdown, admin_state],
+            outputs=[
+                admin_selected_interaction_html,
+                feedback_reason_text,
+                feedback_category_dropdown,
+                admin_feedback_status,
+                admin_error,
+            ],
+        )
 
-            container.innerHTML = interactions.map(renderInteractionCard).join('');
-        }
+        flag_feedback_btn.click(
+            fn=lambda interaction_id, reason, category: save_admin_feedback_from_gradio(
+                gr,
+                interaction_id,
+                reason,
+                category,
+                True,
+            ),
+            inputs=[admin_interaction_dropdown, feedback_reason_text, feedback_category_dropdown],
+            outputs=[
+                admin_error,
+                admin_last_updated,
+                admin_summary_html,
+                admin_interactions_html,
+                admin_interaction_dropdown,
+                admin_selected_interaction_html,
+                feedback_reason_text,
+                feedback_category_dropdown,
+                admin_feedback_status,
+                admin_state,
+            ],
+        )
 
-        function showError(message) {
-            const banner = document.getElementById('errorBanner');
-            if (!message) {
-                banner.classList.remove('active');
-                banner.textContent = '';
-                return;
-            }
-            banner.classList.add('active');
-            banner.textContent = message;
-        }
+        clear_feedback_btn.click(
+            fn=lambda interaction_id, reason, category: save_admin_feedback_from_gradio(
+                gr,
+                interaction_id,
+                reason,
+                category,
+                False,
+            ),
+            inputs=[admin_interaction_dropdown, feedback_reason_text, feedback_category_dropdown],
+            outputs=[
+                admin_error,
+                admin_last_updated,
+                admin_summary_html,
+                admin_interactions_html,
+                admin_interaction_dropdown,
+                admin_selected_interaction_html,
+                feedback_reason_text,
+                feedback_category_dropdown,
+                admin_feedback_status,
+                admin_state,
+            ],
+        )
 
-        async function loadDashboard() {
-            showError('');
+    return demo
 
-            try {
-                const response = await fetch('/api/admin/interactions?limit=100');
-                const data = await response.json();
+def run_gradio_ui(host: str, gradio_port: int) -> None:
+    """Launch the native Gradio support and admin frontend."""
+    launch_host = "127.0.0.1" if host == "0.0.0.0" else host
+    resolved_port = resolve_gradio_port(launch_host, gradio_port)
 
-                if (!response.ok || data.error) {
-                    throw new Error(data.error || 'Unable to load admin data');
-                }
+    print("\n" + "=" * 80)
+    print("GRADIO UI STARTING")
+    if resolved_port != gradio_port:
+        print(f"ℹ Requested port {gradio_port} was busy; using {resolved_port} instead.")
+    print(f"🌐 Gradio app: http://localhost:{resolved_port}")
+    print("=" * 80 + "\n")
 
-                renderSummary(data.summary || {});
-                renderInteractions(data.interactions || []);
-                document.getElementById('lastUpdated').textContent = new Date().toLocaleString();
-            } catch (error) {
-                showError(error.message);
-            }
-        }
-
-        async function submitFeedback(interactionId, flagged) {
-            const reason = document.getElementById(`feedback-reason-${interactionId}`).value.trim();
-            const suggestedCategory = document.getElementById(`feedback-category-${interactionId}`).value;
-            const status = document.getElementById(`feedback-status-${interactionId}`);
-
-            status.textContent = 'Saving feedback...';
-
-            try {
-                const response = await fetch('/api/admin/feedback', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        interaction_id: interactionId,
-                        flagged,
-                        reason,
-                        suggested_category: suggestedCategory
-                    })
-                });
-
-                const data = await response.json();
-                if (!response.ok || data.error) {
-                    throw new Error(data.error || 'Unable to save feedback');
-                }
-
-                status.textContent = flagged
-                    ? 'Flagged and stored for retraining review.'
-                    : 'Flag cleared and review state updated.';
-                await loadDashboard();
-            } catch (error) {
-                status.textContent = `Error: ${error.message}`;
-            }
-        }
-
-        window.addEventListener('load', loadDashboard);
-    </script>
-</body>
-</html>"""
-    return html.replace("__CATEGORY_OPTIONS__", json.dumps(CATEGORY_OPTIONS))
-
-
-class SupportTriageHandler(BaseHTTPRequestHandler):
-    """HTTP request handler for support triage UI and API."""
-    
-    def do_GET(self):
-        """Serve HTML interfaces and admin APIs."""
-        parsed = urlparse(self.path)
-
-        if parsed.path == "/":
-            self.send_html(render_support_ui())
-        elif parsed.path == "/admin":
-            self.send_html(render_admin_ui())
-        elif parsed.path == "/api/users":
-            self.send_json({"users": list_chat_users()}, 200)
-        elif parsed.path == "/api/user-chat":
-            params = parse_qs(parsed.query)
-            customer_id = str(params.get("customer_id", [""])[0]).strip()
-            if not customer_id:
-                self.send_json({"error": "customer_id is required"}, 400)
-                return
-
-            try:
-                limit = int(params.get("limit", ["100"])[0])
-            except (TypeError, ValueError):
-                limit = 100
-
-            try:
-                self.send_json(fetch_user_chat_payload(customer_id, limit=limit), 200)
-            except ValueError as e:
-                self.send_json({"error": str(e)}, 400)
-        elif parsed.path == "/api/admin/interactions":
-            try:
-                params = parse_qs(parsed.query)
-                limit = int(params.get("limit", ["100"])[0])
-            except (TypeError, ValueError):
-                limit = 100
-
-            self.send_json(fetch_admin_dashboard_data(limit=limit), 200)
-        else:
-            self.send_response(404)
-            self.end_headers()
-    
-    def do_POST(self):
-        """Handle support and admin API requests."""
-        parsed = urlparse(self.path)
-
-        if parsed.path == "/api/classify":
-            try:
-                data = self.read_json_body()
-                query = str(data.get("query", "")).strip()
-                customer_id = str(data.get("customer_id", "")).strip()
-                
-                if not query:
-                    self.send_json({"error": "Empty query"}, 400)
-                    return
-                if not customer_id:
-                    self.send_json({"error": "customer_id is required"}, 400)
-                    return
-                
-                result, confidence = classify_query(query, customer_id)
-                
-                if "error" in result:
-                    self.send_json(result, 400)
-                else:
-                    self.send_json(result, 200)
-                    
-            except ValueError as e:
-                self.send_json({"error": str(e)}, 400)
-            except json_module.JSONDecodeError as e:
-                print(f"[Server] JSON decode error: {str(e)}")
-                self.send_json({"error": f"Invalid JSON: {str(e)}"}, 400)
-            except Exception as e:
-                print(f"[Server] Error processing request: {str(e)}")
-                self.send_json({"error": f"Server error: {str(e)}"}, 500)
-        elif parsed.path == "/api/admin/feedback":
-            try:
-                data = self.read_json_body()
-                interaction_id = int(data.get("interaction_id", 0))
-                if interaction_id <= 0:
-                    raise ValueError("A valid interaction_id is required")
-
-                raw_flagged = data.get("flagged", True)
-                if isinstance(raw_flagged, str):
-                    flagged = raw_flagged.lower() in {"1", "true", "yes", "on"}
-                else:
-                    flagged = bool(raw_flagged)
-
-                updated_interaction = save_admin_feedback(
-                    interaction_id=interaction_id,
-                    flagged=flagged,
-                    reason=str(data.get("reason", "")),
-                    suggested_category=str(data.get("suggested_category", ""))
-                )
-                self.send_json({"interaction": updated_interaction}, 200)
-            except ValueError as e:
-                self.send_json({"error": str(e)}, 400)
-            except json_module.JSONDecodeError as e:
-                self.send_json({"error": f"Invalid JSON: {str(e)}"}, 400)
-            except Exception as e:
-                print(f"[Server] Admin feedback error: {str(e)}")
-                self.send_json({"error": f"Server error: {str(e)}"}, 500)
-        else:
-            self.send_response(404)
-            self.end_headers()
-
-    def read_json_body(self) -> dict:
-        """Read and decode a JSON request body."""
-        content_length = int(self.headers.get("Content-Length", 0))
-        if content_length == 0:
-            raise ValueError("No request body")
-
-        body = self.rfile.read(content_length).decode("utf-8")
-        if not body:
-            raise ValueError("Empty request body")
-
-        return json_module.loads(body)
-    
-    def send_html(self, html: str, code: int = 200):
-        """Send an HTML response."""
-        self.send_response(code)
-        self.send_header("Content-Type", "text/html; charset=utf-8")
-        self.end_headers()
-        self.wfile.write(html.encode("utf-8"))
-    
-    def send_json(self, data, code):
-        """Send JSON response."""
-        self.send_response(code)
-        self.send_header("Content-Type", "application/json; charset=utf-8")
-        self.end_headers()
-        self.wfile.write(json_module.dumps(data).encode("utf-8"))
-    
-    def log_message(self, format, *args):
-        """Suppress HTTP server logs."""
-        pass
+    demo = build_gradio_demo()
+    demo.launch(
+        server_name=launch_host,
+        server_port=resolved_port,
+        show_error=True,
+    )
 
 
 if __name__ == "__main__":
+    args = parse_runtime_args()
+
     print("\n🤖 AI SUPPORT TRIAGE\n")
     model, vectorizer = load_trained_pipeline()
-    
-    print("\n" + "="*80)
-    print("HTTP SERVER STARTING")
-    print("🌐 Open your browser: http://localhost:7860")
-    print("="*80 + "\n")
-    
-    server = HTTPServer(("0.0.0.0", 7860), SupportTriageHandler)
-    
-    try:
-        server.serve_forever()
-    except KeyboardInterrupt:
-        print("\n\nShutting down server...")
-        server.shutdown()
+    run_gradio_ui(
+        host=args.host,
+        gradio_port=args.gradio_port,
+    )
