@@ -7,12 +7,20 @@ tags: [feedback-loop, human-in-the-loop, quality-control]
 
 # Apply Feedback Skill
 
-## Purpose
-Capture admin feedback on whether the assistant used the right customer context, followed policy, and produced an appropriate LLM-crafted response.
+## When to use
+When an admin reviews a customer interaction for accuracy, policy compliance, or relevance, and wishes to flag errors or provide corrections for retraining.
 
-## Workflow
+## How to execute
+1. Validate feedback:
+   - Check `interaction_id` exists
+   - Verify `corrected_label` or `suggested_category` is a valid support category
+   - Ensure the reviewer is authorized
+2. Review the stored interaction holistically:
+   - Assess if the assistant used the correct customer context
+   - Check if the response followed policy and was appropriate
+   - Record corrections and notes for retraining
 
-### Input requirements
+## Input requirements
 ```python
 state.feedback = {
     "interaction_id": 42,
@@ -31,13 +39,12 @@ state.feedback = {
 }
 ```
 
-### Processing steps
-1. Validate feedback
-   - Check `interaction_id` exists
-   - Verify `corrected_label` or `suggested_category` is a valid support category
-   - Ensure the reviewer is authorized
+## Output format
+- `feedback_flag`: bool
+- `feedback_reason`: str
+- `feedback_suggested_category`: str
+- `feedback_notes`: str
 
-2. Review the stored interaction holistically
    - `raw_message`
    - `predicted_label`
    - `route_decision`
