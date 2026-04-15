@@ -2,15 +2,16 @@
 
 ## Overview
 
-Complete **multi-agent agentic ML pipeline** for automatically classifying customer support tickets and routing them to the appropriate team. Built with state-based architecture using **Pydantic SupportAgentState** with **12 specialized agents** (11 core + 1 optional admin) working through training, serving, and optional feedback phases.
+Complete **multi-agent agentic ML pipeline** for automatically classifying customer support tickets and routing them to the appropriate team. Built with state-based architecture using **Pydantic SupportAgentState** with **14 specialized agents** (5 training + 9 serving + 1 optional admin) working through training, serving, and optional feedback phases. Each serving request is scoped to a selected customer, with e-commerce context (orders, shipping, payments) resolved before generating a grounded, policy-safe reply.
 
 ### Core Technologies
-- **LangGraph** - Multi-agent orchestration (StateGraph)
-- **Pydantic** - 31-field SupportAgentState for state management
+- **Pydantic** - SupportAgentState for shared state management across all agents
 - **scikit-learn** - ML models (Logistic Regression, LinearSVC, Naive Bayes)
-- **OpenAI GPT-4o-mini** - LLM-driven agents (interpretation, translation, response drafting)
-- **TF-IDF** - Text vectorization (4,808 features, 1-2 grams)
+- **OpenAI GPT-4o-mini** - LLM-driven agents (translation, response drafting)
+- **TF-IDF** - Text vectorization (1-2 grams, up to 5,000 features)
 - **CalibratedClassifierCV** - Probability calibration for confidence scoring
+- **SQLite** - Interaction logging and admin feedback storage (`artifacts/interactions.db`)
+- **Python `http.server`** - Built-in HTTP server serving the chat UI and REST API on port 7860
 
 ---
 
@@ -103,154 +104,156 @@ Complete **multi-agent agentic ML pipeline** for automatically classifying custo
 
 ---
 
-### **PHASE 2: SERVING PIPELINE** (6 Agents - Defined & Ready to Test)
+### **PHASE 2: SERVING PIPELINE** (9 Agents - Executed per request ✅)
 
-Each request flows through all 6 agents sequentially, with state accumulated:
+Each request flows through all 9 agents sequentially. Every agent appends to `state.trace_logs` for a full audit trail.
 
-#### Agent 6: **detect_language_node**
-- **Skill File:** `detect_language.md` (Mode: organisational)
-- **Input:** Raw customer message (user input)
-- **Output:** Detected language code (en, fr, es, de, ja, zh, etc.)
-- **Processing:** Uses `langdetect` library to identify message language
-- **State Update:** state.detected_language = language_code
-- **Trace Log:** Appended to state.trace_logs with stage, timestamp, inputs_summary, outputs_summary
+#### Agent 6: **load_customer_scope_node**
+- **Input:** `state.customer_id` (required — a customer must be selected before chatting)
+- **Output:** Customer profile, order list, and prior conversation history loaded into state
+- **Processing Steps:**
+  1. Load customer profile from `ecommerce_data/ecommerce_customers.csv`
+  2. Load all orders for that customer from `ecommerce_data/ecommerce_orders.csv`
+  3. Fetch last 50 interactions from SQLite (`artifacts/interactions.db`) for this customer
+  4. Detect whether the most recent interaction is an unresolved clarification request → stored in `state.pending_interaction`
+- **State Updates:** `customer_profile`, `customer_name`, `customer_orders`, `conversation_history`, `pending_interaction`
 
 ---
 
-#### Agent 7: **translate_to_english_node**
+#### Agent 7: **detect_language_node**
+- **Skill File:** `detect_language.md` (Mode: organisational)
+- **Input:** `state.raw_message`
+- **Output:** Detected language code (en, fr, es, de, ja, zh, etc.)
+- **Processing:**
+  - Short ASCII messages (≤24 chars) are heuristically defaulted to English without calling the library
+  - Primary detector: TextBlob; fallback: `langdetect`; final fallback: default to `"en"`
+- **State Update:** `state.detected_language`
+
+---
+
+#### Agent 8: **translate_to_english_node**
 - **Skill File:** `translate_to_english.md` (Mode: llm_driven)
-- **Input:** Raw message + detected language from Agent 6
+- **Input:** `state.raw_message` + `state.detected_language`
 - **Output:** English translation (or original if already English)
 - **Logic:**
-  - If detected_language == "en": Use original message, skip LLM (no-op)
-  - If detected_language ≠ "en": Call GPT-4o-mini with translate_to_english SKILL.md as system prompt
-- **State Update:** state.translated_message = (translated text or original)
-- **Colab-Compatible:** Graceful fallback if API unavailable
+  - If `detected_language == "en"`: skip LLM, use original
+  - If non-English AND LLM available: call GPT-4o-mini
+  - If non-English AND no LLM: use original as-is (graceful fallback)
+- **State Update:** `state.translated_message`
 
 ---
 
-#### Agent 8: **run_inference_node** ⭐
+#### Agent 9: **prepare_contextual_query_node**
+- **Input:** `state.translated_message`, `state.customer_orders`, `state.pending_interaction`
+- **Output:** Augmented inference text that handles short follow-up messages
+- **Processing:** If the current message is a very short follow-up to an unresolved clarification (e.g., "the second one"), the agent enriches `inference_message` with prior context so the ML model classifies the correct intent rather than the bare pronoun.
+- **State Update:** `state.inference_message`
+
+---
+
+#### Agent 10: **run_inference_node** ⭐
 - **Skill File:** `run_inference.md` (Mode: organisational)
-- **Input:** Translated message + saved artifacts from Phase 1
+- **Input:** `state.inference_message` (or `state.translated_message`) + saved artifacts from Phase 1
 - **Output:** Predicted category, confidence score, class probabilities for all 11 categories
 - **Processing Steps:**
-  1. Load artifacts from disk:
-     - model.pkl → calibrated Linear SVM classifier
-     - tfidf_vectorizer.pkl → fitted TF-IDF vectorizer
-     - label_encoder.pkl → category name encoder
-     - thresholds.json → tau_high, tau_low
+  1. Load artifacts from disk on first call (model.pkl, tfidf_vectorizer.pkl, label_encoder.pkl, thresholds.json)
   2. Clean text identically to training (lowercase, regex cleaning)
-  3. Vectorize with saved TF-IDF (transform, never refit)
-  4. Call model.predict_proba() → shape (1, 11) array
-  5. Extract:
-     - predicted_label = argmax(probabilities)
-     - confidence_score = max(probabilities)
-     - class_probabilities = dict mapping all 11 categories → probabilities
-     - top_3 = sorted top 3 categories with scores
-- **State Updates:**
-  - state.predicted_label = category name (e.g., "ORDER")
-  - state.confidence_score = float (e.g., 0.9234)
-  - state.class_probabilities = dict of all 11
-  - state.tau_high, state.tau_low = loaded from thresholds.json
+  3. Vectorize with saved TF-IDF (`transform`, never `refit`)
+  4. Call `model.predict_proba()` → shape (1, 11) array
+  5. Extract `predicted_label`, `confidence_score`, `class_probabilities`, top-3 predictions
+- **State Updates:** `predicted_label`, `confidence_score`, `class_probabilities`, `tau_high`, `tau_low`
 - **Critical:** Uses IDENTICAL text cleaning as training (prevents training-serving skew)
 
 ---
 
-#### Agent 9: **confidence_router_node**
+#### Agent 11: **resolve_context_node**
+- **Skill File:** `resolve_context.md` (Mode: organisational)
+- **Input:** Customer profile, orders, conversation history, translated query, predicted label
+- **Output:** Scoped business context JSON grounded in the selected customer's real data
+- **Processing Steps:**
+  1. Determine whether query requires order-level context (CANCEL, DELIVERY, INVOICE, ORDER, PAYMENT, REFUND, SHIPPING)
+  2. Attempt to resolve the specific order ID from message text, dates, or conversation history
+  3. If date mentioned but no ID: list only that customer's matching orders and request disambiguation
+  4. For generic delivery/tracking queries with no explicit ID: default to the customer's latest order
+  5. Build `context_json` scoped to the exact query type (refund fields, shipping fields, payment fields, etc.)
+  6. Set `needs_more_context = True` and a human-readable `clarification_prompt` when the system cannot resolve unambiguously
+  7. May adjust `predicted_label` when the customer's wording clearly maps to a different intent (e.g., subscription question classified as CANCEL)
+- **State Updates:** `context_json`, `resolved_order_id`, `needs_more_context`, `clarification_prompt`, optionally `predicted_label`
+- **Business Rule:** Customer scope never crosses user boundaries — all lookups are scoped to `state.customer_id`
+
+---
+
+#### Agent 12: **confidence_router_node**
 - **Skill File:** `confidence_router.md` (Mode: organisational)
-- **Input:** Predicted label + confidence score + routing thresholds
-- **Output:** Route decision: "AUTO_REPLY" | "CLARIFY" | "ESCALATE"
-- **Routing Logic:**
+- **Input:** `confidence_score`, `tau_high`, `tau_low`, `needs_more_context`, `resolved_order_id`, `predicted_label`
+- **Output:** Route decision: `"AUTO_REPLY"` | `"CLARIFY"` | `"ESCALATE"`
+- **Routing Logic (priority order):**
   ```
-  if confidence >= tau_low (0.99):
-      route_decision = "AUTO_REPLY"      # Safe to respond automatically
-  elif confidence >= tau_high (0.0):
-      route_decision = "CLARIFY"          # Request human clarification
+  if needs_more_context:
+      route_decision = "CLARIFY"         # Missing order/payment context
+  elif resolved_order_id AND category in ORDER_RELATED_CATEGORIES
+       AND confidence >= tau_low:
+      route_decision = "AUTO_REPLY"      # Grounded order context available
+  elif confidence >= tau_high:
+      route_decision = "AUTO_REPLY"      # High-confidence non-order query
+  elif confidence >= tau_low:
+      route_decision = "CLARIFY"         # Medium confidence — ask for clarification
   else:
-      route_decision = "ESCALATE"         # Route to human supervisor
+      route_decision = "ESCALATE"        # Low confidence — route to supervisor
   ```
-- **Interpretation (with current thresholds):**
-  - tau_high=0.0, tau_low=0.99 means model is EXTREMELY confident
-  - Very few predictions will be in the 0.0-0.99 range (mostly binary decision)
-  - Reflects exceptional model quality (Macro F1 0.9984)
-- **State Update:** state.route_decision = "AUTO_REPLY" | "CLARIFY" | "ESCALATE"
+- **State Update:** `state.route_decision`
 
 ---
 
-#### Agent 10: **draft_response_node**
+#### Agent 13: **draft_response_node**
 - **Skill File:** `draft_response.md` (Mode: llm_driven)
-- **Input:** Predicted category + routing decision + confidence score
-- **Output:** Response text (template-based, optionally enhanced by LLM)
-- **Processing:**
-  1. Use category-specific response templates (e.g., "Thank you for ordering..." for ORDER category)
-  2. If route_decision == "AUTO_REPLY" AND HAS_LLM:
-     - Call GPT-4o-mini with draft_response SKILL.md as system prompt
-     - Input context: category, confidence, customer message
-     - Output: Enhanced, polished response
-  3. Otherwise: Use template as-is
-- **Fallback:** If LLM unavailable, always use template
-- **State Update:** state.response_final = response text
+- **Input:** Predicted category, routing decision, scoped context JSON, conversation history
+- **Output:** Policy-safe, customer-facing reply
+- **Processing (3-step architecture):**
+  1. **Build relevant context slice** (`build_relevant_context_slice`): filters `context_json` to only the fields relevant to the predicted category and routing decision
+  2. **Build policy response blueprint** (`build_policy_response_blueprint`): constructs a factual, policy-compliant draft using only data in `context_json`; handles clarification requests, first-greeting logic, and needs_more_context flag
+  3. **Polish with LLM** (if OpenAI available): GPT-4o-mini refines the blueprint into a natural reply using the `draft_response.md` skill instructions as the system prompt; if LLM is unavailable the raw blueprint is used as-is
+  4. **Enforce response policies** (`enforce_response_policies`): post-LLM guardrails that strip policy metadata, validate greeting rules, and ensure factual accuracy
+- **State Updates:** `state.response_final`, `state.response_generation`
 
 ---
 
-#### Agent 11: **log_interaction_node** 📊
+#### Agent 14: **log_interaction_node** 📊
 - **Skill File:** `log_interaction.md` (Mode: organisational)
-- **Input:** Complete SupportAgentState after all previous agents
-- **Output:** JSON log entry appended to `artifacts/interaction_log.jsonl`
-- **Logged Fields:**
-  - conversation_id (unique per request)
-  - timestamp (ISO format)
-  - raw_message (original customer input)
-  - detected_language (from Agent 6)
-  - translated_message (from Agent 7)
-  - predicted_label (from Agent 8)
-  - confidence_score (from Agent 8)
-  - route_decision (from Agent 9)
-  - response_final (from Agent 10)
-  - trace_logs (list of all agent execution traces)
-- **Audit Trail:** Complete record for debugging, analysis, feedback loops
-- **Future:** Can be extended to SQLite database
+- **Input:** Complete `SupportAgentState` after all previous agents
+- **Output:** Row inserted into `artifacts/interactions.db` (SQLite table: `interactions`)
+- **Logged Fields:** timestamp, raw_message, detected_language, translated_message, customer_id, customer_name, predicted_label, confidence_score, route_decision, response, class_probabilities (JSON), pipeline_trace (JSON), response_generation (JSON), context_json (JSON), needs_more_context, clarification_prompt, resolved_order_id
+- **State Update:** `state.interaction_id` (auto-increment primary key from SQLite)
 
 ---
 
 ### **PHASE 3: ADMIN ACTIONS** (1 Agent - Optional, On-Demand)
 
-#### Agent 12: **apply_feedback_node** (Optional Admin Action)
+#### Agent 15: **apply_feedback_node** (Optional Admin Action)
 - **Skill File:** `apply_feedback.md` (Mode: organisational)
 - **Input:** Human correction + feedback on previous prediction
 - **Output:** Feedback record stored for quality tracking & retraining
 - **When Triggered:**
-  - Admin reviews prediction and finds it incorrect
+  - Admin reviews prediction via the Admin Dashboard (`/admin`) and finds it incorrect
   - Admin corrects the predicted category/routing decision
   - Creates audit trail for model improvement
   - Flags for potential retraining if pattern emerges
 - **Processing Steps:**
-  1. Validate feedback (interaction exists, category valid, reviewer authorized)
-  2. Compare original prediction vs. corrected label
-  3. Calculate error type (prediction error? routing error? response error?)
-  4. Store feedback record with metadata
-  5. Flag for retraining approval if systematic issues detected
-- **Feedback Schema:**
-  ```
-  {
-    "feedback_id": 123,
-    "interaction_id": 42,
-    "original_prediction": "SUBSCRIPTION",
-    "corrected_label": "CANCEL",
-    "prediction_error": true,
-    "confidence_of_error": 0.87,  (was it a close call?)
-    "approved_for_retraining": false,
-    "status": "pending_review"
-  }
-  ```
-- **Future Integration:** When approved feedback ≥ 100 entries, trigger retraining pipeline combining original 26,872 samples + corrected feedback
-- **Note:** Not part of main serving pipeline (6 agents above). Only triggered by admins on-demand.
+  1. Validate feedback (interaction exists, category valid)
+  2. Insert row into `admin_feedback` table (SQLite)
+  3. Update `interactions` table with `feedback_flag`, `feedback_reason`, `feedback_suggested_category`, `feedback_updated_at`
+  4. Return updated interaction record
+- **API Endpoint:** `POST /api/admin/feedback`
+- **Future Integration:** When approved feedback ≥ 100 entries, trigger retraining pipeline combining original dataset + corrected feedback
+- **Note:** Not part of main serving pipeline. Triggered by admins through the Admin Dashboard.
 
 ---
 
-## 📋 GOVERNANCE LAYER - 12 SKILL.MD FILES
+## 📋 GOVERNANCE LAYER - 13 SKILL.MD FILES + 3 PYTHON MODULES
 
-Each agent corresponds to a SKILL.md file stored in `skills/` directory:
+Each agent corresponds to a SKILL.md file stored in `skills/`. Three additional Python modules provide the business-logic runtime used by the serving pipeline.
+
+### Skill Files
 
 | # | Agent | SKILL.md File | Mode | Purpose |
 |---|-------|---------------|------|---------|
@@ -262,10 +265,19 @@ Each agent corresponds to a SKILL.md file stored in `skills/` directory:
 | 6 | detect_language_node | detect_language.md | organisational | Language detection algorithm and fallbacks |
 | 7 | translate_to_english_node | translate_to_english.md | **llm_driven** | LLM-based translation approach and error handling |
 | 8 | run_inference_node | run_inference.md | organisational | Model loading, vectorization, prediction pipeline |
-| 9 | confidence_router_node | confidence_router.md | organisational | Three-tier routing logic and threshold interpretation |
-| 10 | draft_response_node | draft_response.md | **llm_driven** | Response generation methodology, template + LLM enhancement |
-| 11 | log_interaction_node | log_interaction.md | organisational | Audit logging schema and data persistence |
-| 12 | apply_feedback_node | apply_feedback.md | organisational | Human feedback handling, error correction, retraining queue |
+| 9 | resolve_context_node | resolve_context.md | organisational | Customer-scoped context building, order ID resolution, clarification logic |
+| 10 | confidence_router_node | confidence_router.md | organisational | Context-aware routing: needs_more_context > grounded order > confidence thresholds |
+| 11 | draft_response_node | draft_response.md | **llm_driven** | Policy-blueprint + LLM response generation with enforcement guardrails |
+| 12 | log_interaction_node | log_interaction.md | organisational | SQLite audit logging schema and data persistence |
+| 13 | apply_feedback_node | apply_feedback.md | organisational | Admin feedback handling, error correction, retraining queue |
+
+### Runtime Python Modules (`skills/`)
+
+| Module | Purpose |
+|--------|---------|
+| `ecommerce_repository.py` | Loads and normalises data from all 5 e-commerce CSV files (customers, orders, sellers, transporters, products); provides `get_customer_scope`, `build_user_summary`, `list_chat_users` |
+| `ecommerce_context.py` | Builds `context_json` for the serving pipeline; resolves order IDs, detects date mentions, prepares disambiguation candidates, sets `needs_more_context` |
+| `ecommerce_response.py` | Provides `build_policy_response_blueprint`, `build_relevant_context_slice`, and `enforce_response_policies` — the three policy-enforcement helpers used by `draft_response_node` |
 
 **SKILL.md Format:**
 ```yaml
@@ -284,7 +296,7 @@ tags: [language-detection, preprocessing]
 
 ## 🏗️ STATE-BASED ARCHITECTURE
 
-All agents share a single **SupportAgentState** Pydantic model (31 fields) that flows through the pipeline:
+All agents share a single **SupportAgentState** Pydantic model that flows through the pipeline:
 
 ### SupportAgentState Fields
 
@@ -293,28 +305,39 @@ All agents share a single **SupportAgentState** Pydantic model (31 fields) that 
 | **Control** | messages | list[str] | Log of what each agent did |
 | | active_skill | Optional[str] | Current executing skill |
 | | mode | str | "train" or "serve" |
-| **Training Data** | raw_df | Optional[Any] | Original dataset |
+| **Training Data** | raw_df | Optional[Any] | Original dataset DataFrame |
 | | train_texts, val_texts, test_texts | Optional[Any] | TF-IDF sparse matrices |
 | | y_train, y_val, y_test | Optional[Any] | Encoded labels |
 | | tfidf_vectorizer | Optional[Any] | Fitted TF-IDF transformer |
 | | label_encoder | Optional[Any] | Category encodings |
 | **Training Outputs** | trained_models | dict | 3 calibrated models |
 | | evaluation_results | dict | F1 scores per model |
-| | evaluation_narrative | Optional[str] | LLM interpretation |
 | **Model Selection** | selected_model | Optional[Any] | Best model (Linear SVM) |
 | | selected_model_name | str | Model name |
-| | tau_high, tau_low | float | Routing thresholds |
+| | tau_high, tau_low | float | Routing thresholds (derived from validation set) |
 | | artifacts_saved | bool | Persistence flag |
-| **Serving Pipeline** | conversation_id | str | Unique request ID |
-| | raw_message | str | Customer input |
-| | detected_language | str | Language code (en/fr/etc) |
+| **Customer Context** | customer_id | str | Selected customer identifier |
+| | customer_name | str | Customer display name |
+| | customer_profile | dict | Customer record from ecommerce_customers.csv |
+| | customer_orders | list[dict] | All orders for this customer |
+| | conversation_history | list[dict] | Prior chat turns from SQLite |
+| | pending_interaction | dict | Latest unresolved clarification interaction |
+| **Serving Inputs** | raw_message | str | Customer's raw input |
+| | detected_language | str | Language code (en/fr/es/etc.) |
 | | translated_message | str | English translation |
-| | predicted_label | str | Category prediction |
-| | confidence_score | float | Confidence (0.0-1.0) |
-| | class_probabilities | dict | All 11 category scores |
+| | inference_message | str | Augmented text used for ML classification |
+| **Context Resolution** | context_json | dict | Scoped business context (order, customer, service recovery) |
+| | resolved_order_id | str | Order ID resolved from message/history |
+| | needs_more_context | bool | True when clarification is required before answering |
+| | clarification_prompt | str | Human-readable question to ask the customer |
+| **Inference Outputs** | predicted_label | str | Category prediction (e.g., "ORDER") |
+| | confidence_score | float | Prediction confidence (0.0-1.0) |
+| | class_probabilities | dict | All 11 category probabilities |
 | | route_decision | str | "AUTO_REPLY" / "CLARIFY" / "ESCALATE" |
-| | response_final | str | Final response text |
-| **Audit Trail** | trace_logs | list[dict] | Execution trace per agent |
+| | response_final | str | Final policy-safe customer reply |
+| | response_generation | dict | Metadata: source, LLM used, reason, context_keys |
+| | interaction_id | Optional[int] | SQLite primary key of logged interaction |
+| **Audit Trail** | trace_logs | list[dict] | Structured execution trace per agent (stage, summary, details, logged_at) |
 
 ---
 
@@ -337,303 +360,252 @@ All agents share a single **SupportAgentState** Pydantic model (31 fields) that 
 
 ## 📁 ARTIFACTS SAVED
 
-**Directory:** `./artifacts/` (2.7 MB total)
+**Directory:** `./artifacts/` (generated at runtime, not version-controlled)
 
-| File | Size | Content | Purpose |
-|------|------|---------|---------|
-| model.pkl | 2.5 MB | Calibrated LinearSVC instance | Production inference model |
-| tfidf_vectorizer.pkl | 196 KB | Fitted TfidfVectorizer | Text vectorization (fixed vocabulary) |
-| label_encoder.pkl | 357 B | LabelEncoder (0→11 categories) | Category name mapping |
-| thresholds.json | 43 B | {"tau_high": 0.0, "tau_low": 0.99} | Routing decision boundaries |
-| model_info.json | 383 B | Metadata: name, timestamp, classes, F1 scores | Model version tracking |
+| File | Content | Purpose |
+|------|---------|---------|
+| model.pkl | Calibrated LinearSVC instance | Production inference model |
+| tfidf_vectorizer.pkl | Fitted TfidfVectorizer | Text vectorization (fixed vocabulary) |
+| label_encoder.pkl | LabelEncoder (0→11 categories) | Category name mapping |
+| thresholds.json | `{"tau_high": ..., "tau_low": ...}` | Routing decision boundaries (derived from validation set) |
+| model_info.json | Metadata: name, timestamp, classes, F1 scores | Model version tracking |
+| interactions.db | SQLite database | Interaction history + admin feedback |
 
-All artifacts are production-ready and loaded by Agent 8 (run_inference_node) at serving time.
-
----
-
-## 🧪 TESTING THE AGENTS
-
-### Test Case 1: English Message (Auto-Reply Expected)
-```python
-state = SupportAgentState(
-    raw_message="I want to cancel my subscription",
-    mode="serve"
-)
-
-# Run agents sequentially
-state = detect_language_node(state)        # detected_language = "en"
-state = translate_to_english_node(state)   # translated_message = original
-state = run_inference_node(state)          # predicted_label = "SUBSCRIPTION"
-state = confidence_router_node(state)      # route_decision = "AUTO_REPLY"
-state = draft_response_node(state)         # response_final = template + LLM
-state = log_interaction_node(state)        # logged to interaction_log.jsonl
-
-# Expected Output:
-# {
-#   "predicted_label": "SUBSCRIPTION",
-#   "confidence_score": 0.92,
-#   "route_decision": "AUTO_REPLY",
-#   "response_final": "We understand you want to cancel..."
-# }
-```
-
-### Test Case 2: Non-English Message (Translation + Processing)
-```python
-state = SupportAgentState(
-    raw_message="Je veux annuler mon abonnement",  # French
-    mode="serve"
-)
-
-# Agent 6 detects French → detected_language = "fr"
-# Agent 7 calls GPT-4o-mini to translate → "I want to cancel my subscription"
-# Agents 8-11 process as normal
-```
-
-### Test Case 3: Python Programmatic Test
-```python
-def test_serving_pipeline():
-    test_messages = [
-        "I can't login to my account",           # ACCOUNT category
-        "Please refund my payment",               # REFUND category
-        "The app keeps crashing",                # Should escalate or clarify
-        "Where is my order",                     # ORDER category
-        "I want to cancel my subscription"       # SUBSCRIPTION category
-    ]
-    
-    for msg in test_messages:
-        state = SupportAgentState(raw_message=msg, mode="serve")
-        
-        state = detect_language_node(state)
-        state = translate_to_english_node(state)
-        state = run_inference_node(state)
-        state = confidence_router_node(state)
-        state = draft_response_node(state)
-        state = log_interaction_node(state)
-        
-        print(f"Message: {msg}")
-        print(f"  → Predicted: {state.predicted_label}")
-        print(f"  → Confidence: {state.confidence_score:.4f}")
-        print(f"  → Route: {state.route_decision}")
-        print()
-```
+All artifacts are loaded by Agent 10 (`run_inference_node`) at serving time. On first run the full training pipeline executes (~2-3 minutes) and saves these files. Subsequent runs load from disk instantly.
 
 ---
 
-## 🔗 BUILDING THE LANGGRAPH
+## 🗄️ E-COMMERCE DATASET
 
-Your teammate can compile all agents into a LangGraph for orchestration:
+The serving pipeline resolves queries against real customer data stored in `ecommerce_data/`:
 
-```python
-from langgraph.graph import StateGraph, END
+| File | Contents |
+|------|---------|
+| `ecommerce_customers.csv` | Customer profiles: name, email, phone, prime subscription flag, registered address |
+| `ecommerce_orders.csv` | Order records linked by `CID`: order ID, status, amount, currency, dates, payment status, refund eligibility, damage flag |
+| `ecommerce_products.csv` | Product catalog linked to orders |
+| `ecommerce_sellers.csv` | Seller details enriched into order context |
+| `ecommerce_transporters.csv` | Transporter/carrier details used for shipping queries |
 
-graph = StateGraph(SupportAgentState)
+This data is loaded by `skills/ecommerce_repository.py` and scoped per customer by Agent 6 (`load_customer_scope_node`). **Customer data never crosses user boundaries** — every lookup is filtered to `state.customer_id`.
 
-# Add nodes
-graph.add_node("detect_lang", detect_language_node)
-graph.add_node("translate", translate_to_english_node)
-graph.add_node("infer", run_inference_node)
-graph.add_node("route", confidence_router_node)
-graph.add_node("draft", draft_response_node)
-graph.add_node("log", log_interaction_node)
+---
 
-# Connect edges
-graph.add_edge("detect_lang", "translate")
-graph.add_edge("translate", "infer")
-graph.add_edge("infer", "route")
-graph.add_edge("route", "draft")
-graph.add_edge("draft", "log")
-graph.add_edge("log", END)
+## 🗃️ DATABASE SCHEMA
 
-# Compile
-runnable = graph.compile()
+`artifacts/interactions.db` contains two tables:
 
-# Execute
-final_state = runnable.invoke(
-    SupportAgentState(
-        raw_message="I want to cancel",
-        mode="serve"
-    )
-)
+**`interactions`** — one row per chat turn:
+```sql
+id, timestamp, raw_message, detected_language, translated_message,
+customer_id, customer_name, predicted_label, confidence_score,
+route_decision, response, class_probabilities (JSON), pipeline_trace (JSON),
+response_generation (JSON), context_json (JSON), needs_more_context,
+clarification_prompt, resolved_order_id, feedback_flag, feedback_reason,
+feedback_suggested_category, feedback_updated_at
+```
 
-print(f"Final Route: {final_state.route_decision}")
-print(f"Response: {final_state.response_final}")
+**`admin_feedback`** — one row per admin review action:
+```sql
+id, interaction_id (FK), flagged, reason, suggested_category, created_at
+```
+
+The schema is created (and migrated with `ALTER TABLE`) automatically on first use by `ensure_database_schema()` — no manual setup required.
+
+---
+
+## 🌐 WEB INTERFACE & REST API
+
+The application runs a native Python HTTP server on **port 7860** (no Gradio dependency required):
+
+```bash
+python app.py
+# Open http://localhost:7860        ← Customer support chat
+# Open http://localhost:7860/admin  ← Admin dashboard
+```
+
+### Pages
+| URL | Description |
+|-----|-------------|
+| `/` | Customer-facing support chat — select a customer, type a message, receive a grounded reply |
+| `/admin` | Admin dashboard — view all interactions, confidence scores, pipeline traces, submit feedback |
+
+### REST API Endpoints
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/api/users` | List all selectable customers from the e-commerce dataset |
+| `GET` | `/api/user-chat?customer_id=<id>&limit=<n>` | Return user summary + chat history for a customer |
+| `GET` | `/api/admin/interactions?limit=<n>` | Return all interactions with summary metrics (admin) |
+| `POST` | `/api/classify` | Run the full 9-agent serving pipeline for a customer query |
+| `POST` | `/api/admin/feedback` | Submit admin feedback/correction for a logged interaction |
+
+**`POST /api/classify` payload:**
+```json
+{
+  "query": "Where is my order?",
+  "customer_id": "C001"
+}
+```
+
+**`POST /api/admin/feedback` payload:**
+```json
+{
+  "interaction_id": 42,
+  "flagged": true,
+  "reason": "Wrong category — should be SHIPPING not ORDER",
+  "suggested_category": "SHIPPING"
+}
 ```
 
 ---
 
-## 📝 NOTEBOOK STRUCTURE
+## 🧪 TESTING
 
-**File:** `SupportAgentState.ipynb` (19 cells, all executed ✅)
+### Running Tests
+```bash
+# Regression tests for ecommerce_repository field normalization
+python -m pytest test_ecommerce_repository.py -v
 
-| Cell # | Content | Status |
-|--------|---------|--------|
-| 1 | Dependencies installation | ✅ Executed |
-| 2 | API key configuration | ✅ Executed |
-| 3 | Imports (sklearn, LangChain, Pydantic, etc.) | ✅ Executed |
-| 4 | SupportAgentState class definition | ✅ Executed |
-| 5 | SkillStore class (lazy-loads SKILL.md files) | ✅ Executed |
-| 6 | Verify 12 SKILL.md files in skills/ | ✅ Executed |
-| 7 | LLM initialization (ChatOpenAI gpt-4o-mini) | ✅ Executed |
-| 8 | preprocess_data_node function | ✅ Executed |
-| 9 | LR sanity check (F1 test) | ✅ Executed |
-| 10 | train_models_node function | ✅ Executed |
-| 11 | Markdown: Dataset quality notes | ✅ (Not executable) |
-| 12-15 | Bitext dataset loading & exploration | ✅ Executed |
-| 16 | evaluate_models_node function | ✅ Executed |
-| 17 | run_inference_node function | ✅ Executed |
-| 18 | select_model_node function | ✅ Executed |
-| 19 | persist_artifacts_node function | ✅ Executed |
-| *20* | *apply_feedback_node function (optional)* | *⏳ Can be added* |
+# Verify trained artifacts are intact
+python test_model.py
 
-All 5 training agents + 6 serving agents fully implemented and ready for production use. Optional apply_feedback_node available for admin feedback loop.
-
-
-
-| Confidence | Routing | Action |
-|-----------|---------|--------|
-| ≥ 0.80 | Auto Approved | Send response immediately |
-| 0.60 - 0.79 | Pending Review | Flag for human review |
-| < 0.60 | Escalate | Route to supervisor |
-
-**Category Overrides:**
-- Security Concern → Always escalate (regardless of confidence)
-- Billing Issue → Flag for review (check before approval)
-
-**Example:**
+# Smoke test the OpenAI translation integration
+python test_openai.py
 ```
-Login Issue, confidence 0.92 → AUTO APPROVED
-Billing Issue, confidence 0.75 → PENDING REVIEW
-Security Issue, confidence 0.98 → ESCALATED (business rule override)
-Unknown Issue, confidence 0.45 → ESCALATED (low confidence)
+
+### Test Files
+| File | Purpose |
+|------|---------|
+| `test_ecommerce_repository.py` | Unit tests for `normalize_column_name`, customer/order loading, boolean flag parsing |
+| `test_model.py` | Loads `artifacts/` files and verifies model, vectorizer, and encoder are intact |
+| `test_backend.py` | Smoke test for `load_trained_pipeline` and `classify_query` pipeline execution |
+| `test_openai.py` | Verifies OpenAI API key and translation through GPT-4o-mini |
+
+### Manual API Test
+```bash
+# Classify a message via the REST API
+curl -s -X POST http://localhost:7860/api/classify \
+  -H "Content-Type: application/json" \
+  -d '{"query": "Where is my order?", "customer_id": "1"}' | python -m json.tool
 ```
+
+---
+
+## 📝 NOTEBOOK
+
+**File:** `SupportAgentState.ipynb` — exploratory notebook showing all training pipeline agents with executed outputs. The training logic from the notebook has been fully migrated into `app.py` for production use.
+
+---
 
 ## OpenAI Integration
 
 ### Models Used
 - **GPT-4o-mini** - Cost-effective LLM for:
-  1. **Evaluate stage** - Interpret model metrics to human manager
-  2. **Select stage** - Generate business justification for model choice
-  3. **Translate stage** - Translate non-English tickets to English
+  1. **Translate stage** - Translate non-English tickets to English
+  2. **Draft response stage** - Polish the policy blueprint into a natural customer reply
 
 ### API Key Setup
 ```bash
-# Terminal - Set environment variable
+# Option 1: Environment variable
 export OPENAI_API_KEY='sk-...'
 
-# OR in notebook - Use Google Secrets (Colab)
-from google.colab import userdata
-api_key = userdata.get('OPENAI_API_KEY')
+# Option 2: Create a .env file (loaded automatically on startup)
+echo "OPENAI_API_KEY=sk-..." > .env
 ```
+
+The application detects the API key at startup. If no key is set, LLM features degrade gracefully:
+- Translation: falls back to the original (non-English) message
+- Response drafting: falls back to the policy blueprint (still factually correct, less polished)
 
 ### Cost Estimate
-- **Training**: ~30-50 API calls (evaluate stage) = ~$0.10-0.20
-- **Serving**: 1 API call per non-English ticket = ~$0.001 per translation
+- **Serving**: 1 API call per non-English ticket (~$0.001 per translation) + 1 API call per reply draft
 
-## Gradio Web UI
-
-The system includes a web interface for manual ticket classification:
-
-```
-┌─────────────────────────────────────────────┐
-│  Customer Support Ticket Classifier         │
-├─────────────────────────────────────────────┤
-│ Customer Message:   [________________]      │
-│ Conversation ID:    [________________]      │
-│                         [CLASSIFY]          │
-├─────────────────────────────────────────────┤
-│ Results:                                    │
-│  Category: Login Issue                      │
-│  Confidence: 92%                            │
-│  Routing: Auto Approved                     │
-│  Response: We've sent a password reset...   │
-│  Database ID: 42                            │
-└─────────────────────────────────────────────┘
-```
+---
 
 ## Troubleshooting
 
-**Q: "ModuleNotFoundError: langdetect"**
+**Q: "ModuleNotFoundError: langdetect" or "ModuleNotFoundError: textblob"**
 ```bash
-pip install langdetect
+pip install -r requirements.txt
 ```
 
-**Q: "sqlite3.OperationalError: no such table: interactions"**
-```bash
-python setup_database.py
-```
+**Q: "ValueError: Selected customer was not found"**
+- Ensure `ecommerce_data/ecommerce_customers.csv` exists
+- Verify the `customer_id` matches the `CID` column in the CSV
 
 **Q: "OpenAI API key not found"**
 ```bash
 export OPENAI_API_KEY='sk-...'
+# OR create a .env file:
+echo "OPENAI_API_KEY=sk-..." > .env
 ```
 
-**Q: "TypeError: PipelineState is not subscriptable"**
-- Ensure state is dict, not dataclass
-- Use `create_initial_state()` helper function
+**Q: Model artifacts not found on startup**
+- This is expected on first run — the training pipeline will execute automatically (~2-3 min)
+- After training, `artifacts/` will contain `model.pkl`, `tfidf_vectorizer.pkl`, `label_encoder.pkl`, `thresholds.json`, `model_info.json`
 
-**Q: LangGraph errors about state serialization**
-- Verify TypedDict import: `from typing import TypedDict`
-- Check PipelineState definition uses TypedDict, not @dataclass
+**Q: Database error on first interaction**
+- The database schema is created automatically — no manual `setup_database.py` required
 
-## File Checklist
+---
 
-**Before Running Notebook:**
-- [ ] `setup_database.py` ✅ (creates data/interactions.db)
-- [ ] `test_system.py` ✅ (validates components)
-- [ ] `all_priority_nodes.py` ✅ (7 node functions)
-- [ ] `INTEGRATION_GUIDE.py` ✅ (step-by-step instructions)
+## 📁 File Structure
 
-**SKILL.md Specifications:**
-- [x] `preprocess_data.md`
-- [x] `train_models.md`
-- [x] `evaluate_models.md`
-- [x] `run_inference.md`
-- [x] `select_model.md`
-- [x] `persist_artifacts.md`
-- [x] `detect_language.md`
-- [x] `translate_to_english.md`
-- [x] `confidence_router.md`
-- [x] `draft_response.md`
-- [x] `log_interaction.md`
-
-**After Running Notebook:**
-- [ ] `artifacts/model.pkl` (trained model)
-- [ ] `artifacts/vectorizer.pkl` (TF-IDF)
-- [ ] `artifacts/encoder.pkl` (label encoder)
-- [ ] `artifacts/evaluation_results.json` (metrics)
-- [ ] `data/interactions.db` (SQLite with logged tickets)
-
-## Next Steps
-
-1. **Run `setup_database.py`** to initialize SQLite
-2. **Run `test_system.py`** to validate components
-3. **Open `INTEGRATION_GUIDE.py`** for step-by-step notebook integration
-4. **Execute `customer_support_pipeline.ipynb`** with all integrated stages
-5. **Test serving pipeline** on sample multilingual tickets
-6. **Launch Gradio UI** for manual classification
-
-## Support & Debug
-
-For detailed integration instructions, run:
-```bash
-python INTEGRATION_GUIDE.py
 ```
-
-This will print the complete step-by-step guide to console. You can also save it:
-```bash
-python INTEGRATION_GUIDE.py --save
-# Creates: INTEGRATION_GUIDE.txt
-```
-
-For system validation:
-```bash
-python test_system.py
-# Runs 6 validation tests and reports results
+BT5151-customer-support-triage/
+├── app.py                              # Main application (3000+ lines):
+│                                       #   - All 14 agent functions
+│                                       #   - Training pipeline orchestration
+│                                       #   - HTTP server + REST API
+│                                       #   - Customer chat UI (HTML)
+│                                       #   - Admin dashboard UI (HTML)
+├── requirements.txt                    # Production dependencies
+├── SupportAgentState.ipynb             # Exploratory training notebook
+├── bt5151_group_project_2026.pdf       # Project reference document
+├── check_dataset.py                    # Dataset inspection utility
+├── debug_translation.py                # Translation debugging utility
+├── test_ecommerce_repository.py        # Unit tests for ecommerce_repository
+├── test_model.py                       # Artifact integrity tests
+├── test_backend.py                     # Backend smoke tests
+├── test_openai.py                      # OpenAI API integration test
+├── ecommerce_data/                     # Structured customer data (CSV)
+│   ├── ecommerce_customers.csv
+│   ├── ecommerce_orders.csv
+│   ├── ecommerce_products.csv
+│   ├── ecommerce_sellers.csv
+│   └── ecommerce_transporters.csv
+├── skills/                             # Skill files & runtime modules
+│   ├── __init__.py
+│   ├── ecommerce_repository.py         # CSV data access layer
+│   ├── ecommerce_context.py            # Context resolution logic
+│   ├── ecommerce_response.py           # Policy blueprint & enforcement
+│   ├── preprocess_data.md
+│   ├── train_models.md
+│   ├── evaluate_models.md
+│   ├── select_model.md
+│   ├── persist_artifacts.md
+│   ├── detect_language.md
+│   ├── translate_to_english.md
+│   ├── run_inference.md
+│   ├── resolve_context.md
+│   ├── confidence_router.md
+│   ├── draft_response.md
+│   ├── log_interaction.md
+│   └── apply_feedback.md
+└── artifacts/                          # Generated at runtime (git-ignored)
+    ├── model.pkl
+    ├── tfidf_vectorizer.pkl
+    ├── label_encoder.pkl
+    ├── thresholds.json
+    ├── model_info.json
+    └── interactions.db
 ```
 
 ---
 
-**Last Updated:** 2024  
-**Status:** ✅ Ready for Integration  
-**Test Coverage:** 6/6 validation tests  
-**Component Count:** 11 SKILL.md + 7 Python nodes + 3 tools + 1 notebook
+**Last Updated:** 2025  
+**Status:** ✅ Production Ready  
+**Pipeline Nodes:** 14 total (5 training + 9 serving) + 1 optional admin  
+**Skill Files:** 13 SKILL.md + 3 Python runtime modules  
+**Support Categories:** 11 classes (ACCOUNT, CANCEL, CONTACT, DELIVERY, FEEDBACK, INVOICE, ORDER, PAYMENT, REFUND, SHIPPING, SUBSCRIPTION)
