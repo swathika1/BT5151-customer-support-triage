@@ -38,16 +38,16 @@ Final persistence node in the serving pipeline. Logs each chat turn so the suppo
 - `trace_logs`
 - `response_generation`
 - `context_json`
-
-## Output format
-- One row inserted into the `interactions` table in `artifacts/interactions.db` with all fields above.
-- If logging fails, the customer still receives a reply, but the interaction may not be persisted.
 - `needs_more_context`
 - `clarification_prompt`
 - `resolved_order_id`
 
 ## Outputs to agent state
 - `interaction_id`: database id of the stored interaction
+
+## Output format
+- One row inserted into the `interactions` table in `artifacts/interactions.db` with all fields above.
+- If logging fails, the customer still receives a reply, but the interaction may not be persisted.
 
 ## Database schema
 ```sql

@@ -946,7 +946,8 @@ def persist_artifacts_node(state: SupportAgentState) -> SupportAgentState:
 
 def load_customer_scope_node(state: SupportAgentState) -> SupportAgentState:
     """Load the selected customer's profile, orders, and recent chat history."""
-    print("[CustomerScopeNode] Loading selected customer scope...")
+    print(f"[CustomerScopeNode] Loading selected customer scope...")
+    state.active_skill = "load_customer_scope"
 
     if not state.customer_id:
         raise ValueError("A customer must be selected before starting the chat.")
@@ -1093,7 +1094,8 @@ def translate_to_english_node(state: SupportAgentState) -> SupportAgentState:
 
 def prepare_contextual_query_node(state: SupportAgentState) -> SupportAgentState:
     """Augment short clarification follow-ups with prior pending context."""
-    print("[ContextPrepNode] Preparing customer-scoped inference text...")
+    print(f"[ContextPrepNode] Preparing customer-scoped inference text...")
+    state.active_skill = "prepare_contextual_query"
 
     state.inference_message, prep_reason = prepare_contextual_inference_message(
         state.translated_message,

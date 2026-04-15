@@ -19,8 +19,20 @@ When an admin reviews a customer interaction for accuracy, policy compliance, or
    - Assess if the assistant used the correct customer context
    - Check if the response followed policy and was appropriate
    - Record corrections and notes for retraining
+   - Review `raw_message`, `predicted_label`, `route_decision`, `response`, `context_json`, `pipeline_trace`
+3. Check policy compliance
+   - Was the first reply greeted properly when it should have been?
+   - If user was not prime, did the response avoid promising fast delivery or prime-only cancellation/return privileges?
+   - If invoice-related, did the response direct the user to `My Profile -> Past Orders`?
+   - If shipped, did the response avoid offering cancellation and suggest return after delivery instead?
+   - If identifier was missing, did the bot ask for the right order or payment reference instead of guessing?
+   - Did the bot keep the final reply natural-language only and avoid printing JSON?
+4. Store the feedback record
+   - Mark the interaction row as flagged or cleared
+   - Save feedback notes and suggested category
+   - Optionally enqueue the case for future retraining
 
-## Input requirements
+## Inputs from agent state
 ```python
 state.feedback = {
     "interaction_id": 42,
@@ -39,32 +51,6 @@ state.feedback = {
 }
 ```
 
-## Output format
-- `feedback_flag`: bool
-- `feedback_reason`: str
-- `feedback_suggested_category`: str
-- `feedback_notes`: str
-
-   - `raw_message`
-   - `predicted_label`
-   - `route_decision`
-   - `response`
-   - `context_json`
-   - `pipeline_trace`
-
-3. Check policy compliance
-   - Was the first reply greeted properly when it should have been?
-   - If user was not prime, did the response avoid promising fast delivery or prime-only cancellation/return privileges?
-   - If invoice-related, did the response direct the user to `My Profile -> Past Orders`?
-   - If shipped, did the response avoid offering cancellation and suggest return after delivery instead?
-   - If identifier was missing, did the bot ask for the right order or payment reference instead of guessing?
-   - Did the bot keep the final reply natural-language only and avoid printing JSON?
-
-4. Store the feedback record
-   - Mark the interaction row as flagged or cleared
-   - Save feedback notes and suggested category
-   - Optionally enqueue the case for future retraining
-
 ## Recommended review checklist
 - `prediction_correct`
 - `routing_correct`
@@ -74,14 +60,19 @@ state.feedback = {
 - `suggested_category`
 - `feedback_notes`
 
-## Output
-
+## Outputs to agent state
 State or persistence updates:
 - mark interaction as flagged or cleared
 - save `feedback_reason`
 - save `feedback_suggested_category`
 - save `feedback_updated_at`
 - optionally insert a row into `admin_feedback`
+
+## Output format
+- `feedback_flag`: bool
+- `feedback_reason`: str
+- `feedback_suggested_category`: str
+- `feedback_notes`: str
 
 ## Example stored feedback record
 ```json
